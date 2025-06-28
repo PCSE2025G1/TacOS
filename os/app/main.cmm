@@ -1,7 +1,8 @@
 /*
  * TacOS Source Code 2025 CE2実験
  * author: i19ishihara, i19urasaki, i19oota
-*/
+ */
+
 #include "screenMng.hmm"
 #include "settingsMng.hmm"
 #include "streamMng.hmm"
@@ -10,4 +11,179 @@
 
 #include <kernel.hmm>
 
+// lcdの表示関数を使用
+#include <util.hmm> 
+#include "lcd.hmm"
 
+//-----------------------------------------------------------------------------
+// スイッチ定義
+//-----------------------------------------------------------------------------
+#define SW1 0x20
+#define SW2 0x10    // 上
+#define SW3 0x08
+#define SW4 0x04    // 下
+#define SW5 0x02
+#define SW6 0x01    // 決定
+#define SWS 0x3f    // 6ビット分のマスク
+
+int sw0 = 0x00;
+int sw1 = 0x00;
+
+//-----------------------------------------------------------------------------
+// スイッチ立ち上がり取得
+//-----------------------------------------------------------------------------
+int get_sw(){
+    int sw = ~in(0x18) & SWS;       // 現在のスイッチ状態取得（反転してマスク）
+    int swd = sw & sw0;
+    int sw2 = (sw1 ^ swd) & swd;    // 新しく押されたスイッチを取得
+    sw0 = sw;
+    sw1 = swd;
+    return sw2;
+}
+
+
+//-----------------------------------------------------------------------------
+// グローバル変数：状態を保持
+//-----------------------------------------------------------------------------
+int mode = 0;               // 動作状態(0:選択中, 1:設定中)
+int m_select = 0;           // 設定状態(0:音量, 1:電源)
+int m_volume = 6;           // 音量(0~10)
+int temp_volume = 6;        // 選択中の音量(決定ボタンで確定)
+int powerIndex = 0;         // 電源状態(0:ON, 1:OFF)
+int temp_powerIndex = 0;    // 選択中の電源状態(決定ボタンで確定)
+//-----------------------------------------------------------------------------
+// 画面表示
+//-----------------------------------------------------------------------------
+void draw(){
+    // sel: 選択状態(0:音量, 1:電源
+    cls();
+
+    // volume行
+    if (m_select == 0){
+        putStr(">");
+    }
+    else{
+        putStr(" ");
+    }
+
+    locateXY(2, 0);
+    putStr("volume: ");
+    if (m_select == 0 && mode == 1){
+        putDec(temp_volume, 2);
+    }
+    else{
+        putDec(m_volume, 2);
+    }
+
+    // power行
+    locateXY(0, 1);
+    if (m_select == 1){
+        putStr(">");
+    }
+    else{
+        putStr(" ");
+    }
+    locateXY(2, 1);
+    putStr("power : ");
+    if (m_select == 1 && mode == 1){
+        if (temp_powerIndex == 0){
+            putStr("ON");
+        }
+        else{
+            putStr("OFF");
+        }
+    }
+    else{
+        if (powerIndex == 0){
+            putStr("ON");
+        }
+        else{
+            putStr("OFF");
+        }
+    }
+}
+
+//-----------------------------------------------------------------------------
+// 設定処理
+//-----------------------------------------------------------------------------
+void act_settings(I_StgSt input){
+    int sw = input.sw;
+
+    if (mode == 0){
+        // 選択モード(音量か、電源か)
+        if ((sw & SW2) != 0 || (sw & SW4) != 0){
+            m_select = 1 - m_select;
+        }
+        else if ((sw & SW6) != 0){
+            mode = 1;   // 決定ボタンが押され、各値設定モードに移行
+        }
+    }
+    else{
+        // 音量設定
+        if (m_select == 0){
+            if ((sw & SW2) != 0 && temp_volume < 10){
+                temp_volume=temp_volume + 1;
+                up_volume();
+            }
+            if ((sw & SW4) != 0 && temp_volume > 0){
+                temp_volume=temp_volume - 1;
+                down_volume();
+            }
+            if ((sw & SW6) != 0){
+                m_volume = temp_volume;
+                mode = 0;
+            }
+        }
+        // 電源設定
+        else if (m_select == 1){
+            if ((sw & SW2) != 0 || (sw & SW4) != 0){
+                temp_powerIndex = 1 - temp_powerIndex;
+            }
+            if ((sw & SW6) != 0){
+                powerIndex = temp_powerIndex;
+                mode = 0; // 決定ボタンが押され、選択モードに戻る
+            }
+        }
+        else{
+            if ((sw & SW2) != 0 || (sw & SW4) != 0){
+                temp_powerIndex = 1 - temp_powerIndex;
+            }
+            if ((sw & SW6) != 0){
+                powerIndex = temp_powerIndex;
+                if (powerIndex == 1){
+                    cls();
+                    locateXY(0, 2);
+                    putStr("Shutting down...");
+                    sleep(1000);
+                    power_off();
+                }
+                mode = 0;
+            }
+        }
+    }
+}
+
+//-----------------------------------------------------------------------------
+// メイン処理
+//-----------------------------------------------------------------------------
+
+void main(){
+    get_sw(); // 初期化のため1回呼ぶ
+
+    // 初期表示（画面に最初の状態を出す）
+    draw();
+
+    while (true){
+        int sw = get_sw();
+        if (sw != 0){
+            I_StgSt input;
+            input.sw = sw;
+            act_settings(input);
+        }
+
+        // どのフレームでも画面を更新（状態に応じて自動で変化）
+        draw();
+
+        sleep(10);
+    }
+}
