@@ -1,189 +1,416 @@
-/*
- * TacOS Source Code 2025 CE2実験
- * author: i19ishihara, i19urasaki, i19oota
- */
+// /*
+//  * TacOS Source Code 2025 CE2実験
+//  * author: i19ishihara, i19urasaki, i19oota
+//  */
 
-#include "screenMng.hmm"
-#include "settingsMng.hmm"
-#include "streamMng.hmm"
-#include "playlistMng.hmm"
-#include "libMng.hmm"
+// #include "screenMng.hmm"
+// #include "settingsMng.hmm"
+// #include "streamMng.hmm"
+// #include "playlistMng.hmm"
+// #include "libMng.hmm"
 
-#include <kernel.hmm>
+// #include <kernel.hmm>
 
-// lcdの表示関数を使用
-#include <util.hmm> 
-#include "lcd.hmm"
+// // lcdの表示関数を使用
+// #include <util.hmm>
+// #include "lcd.hmm"
 
-//-----------------------------------------------------------------------------
-// スイッチ定義
-//-----------------------------------------------------------------------------
-#define SW1 0x20
-#define SW2 0x10    // 上
-#define SW3 0x08
-#define SW4 0x04    // 下
-#define SW5 0x02
-#define SW6 0x01    // 決定
-#define SWS 0x3f    // 6ビット分のマスク
+// //-----------------------------------------------------------------------------
+// // スイッチ定義
+// //-----------------------------------------------------------------------------
+// #define SW1 0x20
+// #define SW2 0x10 // 上
+// #define SW3 0x08
+// #define SW4 0x04 // 下
+// #define SW5 0x02
+// #define SW6 0x01 // 決定
+// #define SWS 0x3f // 6ビット分のマスク
 
-int sw0 = 0x00;
-int sw1 = 0x00;
+// int sw0 = 0x00;
+// int sw1 = 0x00;
 
-//-----------------------------------------------------------------------------
-// スイッチ立ち上がり取得
-//-----------------------------------------------------------------------------
-int get_sw(){
-    int sw = ~in(0x18) & SWS;       // 現在のスイッチ状態取得（反転してマスク）
-    int swd = sw & sw0;
-    int sw2 = (sw1 ^ swd) & swd;    // 新しく押されたスイッチを取得
-    sw0 = sw;
-    sw1 = swd;
-    return sw2;
-}
+// // 一旦変数
+// song[] queue = {
+//     {1, "Song1", false, "Artist1", "/path/to/song1.mp3"},
+//     {2, "Song2", true, "Artist2", "/path/to/song2.mp3"},
+//     {3, "Song3", false, "Artist3", "/path/to/song3.mp3"}};
+// //-----------------------------------------------------------------------------
+// // スイッチ立ち上がり取得
+// //-----------------------------------------------------------------------------
+// int get_sw()
+// {
+//     int sw = ~in(0x18) & SWS; // 現在のスイッチ状態取得（反転してマスク）
+//     int swd = sw & sw0;
+//     int sw2 = (sw1 ^ swd) & swd; // 新しく押されたスイッチを取得
+//     sw0 = sw;
+//     sw1 = swd;
+//     return sw2;
+// }
 
+// int swToNum(int sw)
+// {
+//     int num = -1;
+//     if ((sw & SW6) != 0)
+//     { // 6 番のスイッチが押された
+//         num = 6;
+//     }
+//     else if ((sw & SW5) != 0)
+//     { // 5 番のスイッチが押された
+//         num = 5;
+//     }
+//     else if ((sw & SW4) != 0)
+//     { // 4 番のスイッチが押された
+//         num = 4;
+//     }
+//     else if ((sw & SW3) != 0)
+//     { // 3 番のスイッチが押された
+//         num = 3;
+//     }
+//     else if ((sw & SW2) != 0)
+//     { // 2 番のスイッチが押された
+//         num = 2;
+//     }
+//     else if ((sw & SW1) != 0)
+//     { // 1 番のスイッチが押された
+//         num = 1;
+//     }
+//     return num;
+// }
 
-//-----------------------------------------------------------------------------
-// グローバル変数：状態を保持
-//-----------------------------------------------------------------------------
-int mode = 0;               // 動作状態(0:選択中, 1:設定中)
-int m_select = 0;           // 設定状態(0:音量, 1:電源)
-int m_volume = 6;           // 音量(0~10)
-int temp_volume = 6;        // 選択中の音量(決定ボタンで確定)
-int powerIndex = 0;         // 電源状態(0:ON, 1:OFF)
-int temp_powerIndex = 0;    // 選択中の電源状態(決定ボタンで確定)
-//-----------------------------------------------------------------------------
-// 画面表示
-//-----------------------------------------------------------------------------
-void draw(){
-    // sel: 選択状態(0:音量, 1:電源
-    cls();
+// //-----------------------------------------------------------------------------
+// // グローバル変数：状態を保持
+// //-----------------------------------------------------------------------------
+// int mode = 0;            // 動作状態(0:選択中, 1:設定中)
+// int m_select = 0;        // 設定状態(0:音量, 1:電源)
+// int m_volume = 6;        // 音量(0~10)
+// int temp_volume = 6;     // 選択中の音量(決定ボタンで確定)
+// int powerIndex = 0;      // 電源状態(0:ON, 1:OFF)
+// int temp_powerIndex = 0; // 選択中の電源状態(決定ボタンで確定)
+// //-----------------------------------------------------------------------------
+// // 画面表示
+// //-----------------------------------------------------------------------------
+// void draw()
+// {
+//     // sel: 選択状態(0:音量, 1:電源
+//     cls();
 
-    // volume行
-    if (m_select == 0){
-        putStr(">");
-    }
-    else{
-        putStr(" ");
-    }
+//     // volume行
+//     if (m_select == 0)
+//     {
+//         putStr(">");
+//     }
+//     else
+//     {
+//         putStr(" ");
+//     }
 
-    locateXY(2, 0);
-    putStr("volume: ");
-    if (m_select == 0 && mode == 1){
-        putDec(temp_volume, 2);
-    }
-    else{
-        putDec(m_volume, 2);
-    }
+//     locateXY(2, 0);
+//     putStr("volume: ");
+//     if (m_select == 0 && mode == 1)
+//     {
+//         putDec(temp_volume, 2);
+//     }
+//     else
+//     {
+//         putDec(m_volume, 2);
+//     }
 
-    // power行
-    locateXY(0, 1);
-    if (m_select == 1){
-        putStr(">");
-    }
-    else{
-        putStr(" ");
-    }
-    locateXY(2, 1);
-    putStr("power : ");
-    if (m_select == 1 && mode == 1){
-        if (temp_powerIndex == 0){
-            putStr("ON");
-        }
-        else{
-            putStr("OFF");
-        }
-    }
-    else{
-        if (powerIndex == 0){
-            putStr("ON");
-        }
-        else{
-            putStr("OFF");
-        }
-    }
-}
+//     // power行
+//     locateXY(0, 1);
+//     if (m_select == 1)
+//     {
+//         putStr(">");
+//     }
+//     else
+//     {
+//         putStr(" ");
+//     }
+//     locateXY(2, 1);
+//     putStr("power : ");
+//     if (m_select == 1 && mode == 1)
+//     {
+//         if (temp_powerIndex == 0)
+//         {
+//             putStr("ON");
+//         }
+//         else
+//         {
+//             putStr("OFF");
+//         }
+//     }
+//     else
+//     {
+//         if (powerIndex == 0)
+//         {
+//             putStr("ON");
+//         }
+//         else
+//         {
+//             putStr("OFF");
+//         }
+//     }
+// }
 
-//-----------------------------------------------------------------------------
-// 設定処理
-//-----------------------------------------------------------------------------
-void act_settings(I_StgSt input){
-    int sw = input.sw;
+// //-----------------------------------------------------------------------------
+// // 設定処理
+// //-----------------------------------------------------------------------------
+// void act_settings(I_StgSt input)
+// {
+//     int sw = input.sw;
+//     int num = swToNum(sw);
 
-    if (mode == 0){
-        // 選択モード(音量か、電源か)
-        if ((sw & SW2) != 0 || (sw & SW4) != 0){
-            m_select = 1 - m_select;
-        }
-        else if ((sw & SW6) != 0){
-            mode = 1;   // 決定ボタンが押され、各値設定モードに移行
-        }
-    }
-    else{
-        // 音量設定
-        if (m_select == 0){
-            if ((sw & SW2) != 0 && temp_volume < 10){
-                temp_volume=temp_volume + 1;
-                up_volume();
-            }
-            if ((sw & SW4) != 0 && temp_volume > 0){
-                temp_volume=temp_volume - 1;
-                down_volume();
-            }
-            if ((sw & SW6) != 0){
-                m_volume = temp_volume;
-                mode = 0;
-            }
-        }
-        // 電源設定
-        else if (m_select == 1){
-            if ((sw & SW2) != 0 || (sw & SW4) != 0){
-                temp_powerIndex = 1 - temp_powerIndex;
-            }
-            if ((sw & SW6) != 0){
-                powerIndex = temp_powerIndex;
-                mode = 0; // 決定ボタンが押され、選択モードに戻る
-            }
-        }
-        else{
-            if ((sw & SW2) != 0 || (sw & SW4) != 0){
-                temp_powerIndex = 1 - temp_powerIndex;
-            }
-            if ((sw & SW6) != 0){
-                powerIndex = temp_powerIndex;
-                if (powerIndex == 1){
-                    cls();
-                    locateXY(0, 2);
-                    putStr("Shutting down...");
-                    sleep(1000);
-                    power_off();
-                }
-                mode = 0;
-            }
-        }
-    }
-}
+//     if (mode == 0)
+//     {
+//         // 選択モード(音量か、電源か)
+//         if (num == 2 || num == 4)
+//         { // SW2(上) または SW4(下)
+//             m_select = 1 - m_select;
+//         }
+//         else if (num == 6)
+//         {             // SW6(決定)
+//             mode = 1; // 決定ボタンが押され、各値設定モードに移行
+//         }
+//     }
+//     else
+//     {
+//         // 音量設定
+//         if (m_select == 0)
+//         {
+//             if (num == 2 && temp_volume < 10)
+//             { // SW2(上)
+//                 temp_volume = temp_volume + 1;
+//                 up_volume();
+//             }
+//             if (num == 4 && temp_volume > 0)
+//             { // SW4(下)
+//                 temp_volume = temp_volume - 1;
+//                 down_volume();
+//             }
+//             if (num == 6)
+//             { // SW6(決定)
+//                 m_volume = temp_volume;
+//                 mode = 0;
+//             }
+//         }
+//         // 電源設定
+//         else if (m_select == 1)
+//         {
+//             if (num == 2 || num == 4)
+//             { // SW2(上) または SW4(下)
+//                 temp_powerIndex = 1 - temp_powerIndex;
+//             }
+//             if (num == 6)
+//             { // SW6(決定)
+//                 powerIndex = temp_powerIndex;
+//                 mode = 0; // 決定ボタンが押され、選択モードに戻る
+//             }
+//         }
+//         else
+//         {
+//             if (num == 2 || num == 4)
+//             { // SW2(上) または SW4(下)
+//                 temp_powerIndex = 1 - temp_powerIndex;
+//             }
+//             if (num == 6)
+//             { // SW6(決定)
+//                 powerIndex = temp_powerIndex;
+//                 if (powerIndex == 1)
+//                 {
+//                     cls();
+//                     locateXY(0, 2);
+//                     putStr("Shutting down...");
+//                     sleep(1000);
+//                     power_off();
+//                 }
+//                 mode = 0;
+//             }
+//         }
+//     }
+// }
 
-//-----------------------------------------------------------------------------
-// メイン処理
-//-----------------------------------------------------------------------------
+// //-----------------------------------------------------------------------------
+// // ストリーム再生処理
+// //-----------------------------------------------------------------------------
+// // main.cmm の冒頭部分に追加する可能性のあるグローバル変数
+// // (Mainモジュールが StreamMng の状態を間接的に管理するためのもの)
 
-void main(){
-    get_sw(); // 初期化のため1回呼ぶ
+// // 現在選択されているプレイリストの名前 (他の画面で設定されると仮定)
+// // char[] current_playlist_name = "MyDefaultPlaylist"; // 例: デフォルトのプレイリスト名
 
-    // 初期表示（画面に最初の状態を出す）
-    draw();
+// // song構造体
+// // struct song {
+// //     int index;
+// //     char[] name;
+// //     boolean fav;
+// //     char[] artist;
+// //     char[] path;
+// // };
 
-    while (true){
-        int sw = get_sw();
-        if (sw != 0){
-            I_StgSt input;
-            input.sw = sw;
-            act_settings(input);
-        }
+// //-----------------------------------------------------------------------------
+// // ストリーム再生処理
+// //-----------------------------------------------------------------------------
+// I_StrmSt is = {
+//     1 // スイッチ状態
+// };
+// // public O_StrmSt act_stream(I_StrmSt input) {
+// public O_StrmSt act_stream(I_StrmSt input){
+//     O_StrmSt output;
+//     // int sw = input.sw;
+//     int num = swToNum(input.sw);
 
-        // どのフレームでも画面を更新（状態に応じて自動で変化）
-        draw();
+//     // StreamMng の各関数を呼び出す
+//     // song[] q = get_queue(); // 曲の再生順を取得
+//     // s = get_song(); // 現在の曲を取得
 
-        sleep(10);
-    }
-}
+//     int playstatus = 0; // 0:停止中, 1:再生中
+//     int idx = 0;        // 現在の曲のインデックス
+//     // 仮の曲データ（実際には StreamMng から取得する）
+
+//     song[][] history = null; // 再生履歴
+
+//     // 現在の再生状態を保持する変数
+//     // boolean playstatus = false; // 再生中か停止中か
+//     boolean main_is_loop_enabled = false;
+//     boolean main_is_repeat_enabled = false;
+//     boolean main_is_shuffle_enabled = false;
+
+//     // SW4で前の曲、SW6で次の曲、SW5が押されるたびに、再生と停止が切り替わる。
+//     // SW3が押されたら、ループとリピートとシャッフルが切り替わる。
+//     if (num == 4)
+//     { // SW4: 前の曲
+//         previous();
+//         // previous(queue);
+//         dbgPutStr("SW4: Previous song.\n");
+//     }
+//     else if (num == 6)
+//     { // SW6: 次の曲
+//         next();
+//         // next(queue);
+//         dbgPutStr("SW6: Next song.\n");
+//     }
+//     else if (num == 5)
+//     { // SW5: 再生/停止トグル
+//         if (playstatus == 1)
+//         { // 現在再生中なら停止
+//             stop_c();
+//             playstatus = 0; // 状態を更新
+//             dbgPutStr("SW5: Playback stopped.\n");
+//         }
+//         else
+//         {                   // 現在停止中なら再生開始
+//             play_c(queue, 0); // プレイリストの先頭から再生
+//             playstatus = 1; // 状態を更新
+//             dbgPutStr("SW5: Playback started.\n");
+
+//             // song[] songs_to_play = PlayListMng.get_songs_from_playlist(current_playlist_name); // 仮定
+
+//             // if (length(queue) > 0) {
+//             //     play( queue, 0); // プレイリストの先頭から再生
+//             //     playstatus = 1; // 状態を更新
+//             //     dbgPutStr("SW5: Playback started.\n");
+//             // //  プレイリストが空の時
+//             // } else {
+//             //     dbgPutStr("Error: No songs in the current playlist to play.\n");
+//             //     playstatus = 0;
+//             // }
+//         }
+//     }
+//     else if (num == 3)
+//     { // SW3: ループ/リピート/シャッフル切り替え (要件)
+//         if (main_is_loop_enabled)
+//         { // 現在ループなら、リピートへ
+//             loop(false);
+//             repeat(true);
+//             shuffle(false);
+//             main_is_loop_enabled = false;
+//             main_is_repeat_enabled = true;
+//             main_is_shuffle_enabled = false;
+//             dbgPutStr("SW3: Mode: Repeat\n");
+//         }
+//         else if (main_is_repeat_enabled)
+//         { // 現在リピートなら、シャッフルへ
+//             loop(false);
+//             repeat(false);
+//             shuffle(true);
+//             main_is_loop_enabled = false;
+//             main_is_repeat_enabled = false;
+//             main_is_shuffle_enabled = true;
+//             dbgPutStr("SW3: Mode: Shuffle\n");
+//         }
+//         else if (main_is_shuffle_enabled)
+//         { // 現在シャッフルなら、全てオフ（ノーマル）へ
+//             loop(false);
+//             repeat(false);
+//             shuffle(false);
+//             main_is_loop_enabled = false;
+//             main_is_repeat_enabled = false;
+//             main_is_shuffle_enabled = false;
+//             dbgPutStr("SW3: Mode: Normal\n");
+//         }
+//         else
+//         { // 全てオフ（ノーマル）なら、ループへ
+//             loop(true);
+//             repeat(false);
+//             shuffle(false);
+//             main_is_loop_enabled = true;
+//             main_is_repeat_enabled = false;
+//             main_is_shuffle_enabled = false;
+//             dbgPutStr("SW3: Mode: Loop\n");
+//         }
+//     }
+
+//     // 現在の状態を O_StrmSt に格納して返す
+//     // output.crt_song = get_song(queue);
+//     // 履歴の曲リストを返す
+//     // output.history = get_history();
+
+//     // output.type (再生モード) の設定:
+//     // main.cmm 側で管理している状態変数から判断
+//     if (main_is_loop_enabled){
+//         output.type = 1; // "Loop"
+//     }
+//     else if (main_is_repeat_enabled){
+//         output.type = 2; // "Repeat"
+//     }
+//     else if (main_is_shuffle_enabled){
+//         output.type = 3; // "Shuffle"
+//     }
+//     else{
+//         output.type = 0; // "Normal" (すべてオフ)
+//     }
+
+//     output.super_name = "Stream"; // この画面の名前
+
+//     // 経過時間と曲の長さは StreamMng から取得
+//     int now_time = get_now_time();
+//     int song_length = get_song_length();
+
+//     return output;
+// }
+
+// //-----------------------------------------------------------------------------
+// // メイン処理
+// //-----------------------------------------------------------------------------
+
+// void main()
+// {
+//     get_sw(); // 初期化のため1回呼ぶ
+//     // 初期表示（画面に最初の状態を出す）
+//     draw();
+
+//     while (true)
+//     {
+//         int sw = get_sw();
+//         if (sw != 0)
+//         {
+//             I_StgSt input;
+//             input.sw = sw;
+//             act_settings(input);
+//         }
+
+//         // どのフレームでも画面を更新（状態に応じて自動で変化）
+//         draw();
+
+//         sleep(10);
+//     }
+// }

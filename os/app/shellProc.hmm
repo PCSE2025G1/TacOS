@@ -26,4 +26,10 @@
  *
  */
 
+
+#include "structures.hmm"
+
+
 public void shellMain();
+
+void act_settings(I_StgSt input);

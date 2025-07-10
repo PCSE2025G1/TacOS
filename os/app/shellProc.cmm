@@ -29,11 +29,18 @@
  */
 #include <kernel.hmm>
 #include <util.hmm>
+
+#include "settingsMng.hmm"
+
 #include "lcd.hmm"
-#include "mp3Proc.hmm"
+// #include "mp3Proc.hmm"
+#include "streamMng.hmm"
 #include "spi.hmm"
 #include "mp3Files.hmm"
 #include "shellProc.hmm"
+
+#include "mm.hmm"// mallocでのメモリ管理
+
 
 //-----------------------------------------------------------------------------
 // スイッチの読み取り
@@ -77,12 +84,108 @@ int swToNum(int sw) {
   return num;
 }
       
+
+song[] queue;  // 再生キュー
+
+void initQueue() {
+  queue = malloc(sizeof(song) * 1);  // 構造体5つ分のメモリを確保
+
+  for (int i = 0; i < 5; i = i + 1) {
+    char[] name = mp3FilesGetName(i + 1);
+    char[] path = mp3FilesGetPath(i + 1);
+
+    if (name != null && path != null) {
+      song s;
+      s.index  = i;
+      s.name   = name;
+      s.fav    = false;
+      s.artist = "unknown";
+      s.path   = path;
+      queue[i] = s;
+    } else {
+      song s;
+      s.index = -1;
+      queue[i] = s;
+    }
+  }
+}
+
 //-----------------------------------------------------------------------------
-// 画面表示
+// 画面管理
 //-----------------------------------------------------------------------------
-void demoScreen() {
+int currentScreen = 0;                              // 現在の画面 (0:home, 1:screen1, 2:screen2, 3:screen3)
+int homeSelection = 0;                              // ホーム画面での選択項目 (0:screen1, 1:screen2, 2:screen3)
+
+//-----------------------------------------------------------------------------
+// 共通のカーソル表示関数
+//-----------------------------------------------------------------------------
+// 指定した範囲の行のカーソルを更新する
+// startRow: カーソル表示開始行
+// itemCount: 選択肢の数
+// selectedIndex: 現在選択されている項目のインデックス（0から開始）
+void updateCursor(int startRow, int itemCount, int selectedIndex) {
+  // 全ての行のカーソルをクリア
+  for (int i = 0; i < itemCount; i = i + 1) {
+    locateXY(0, startRow + i);
+    putStr(" ");
+  }
+  
+  // 現在の選択位置にカーソルを表示
+  locateXY(0, startRow + selectedIndex);
+  putStr(">");
+}
+
+
+//-----------------------------------------------------------------------------
+// 共通のナビゲーション処理関数
+//-----------------------------------------------------------------------------
+// 上下移動処理を行い、選択項目が変更されたかどうかを返す
+// currentSelection: 現在の選択項目のポインタ
+// maxItems: 最大選択項目数
+// buttonNum: 押されたボタン番号
+// 戻り値: 選択項目が変更された場合1、変更されなかった場合0
+int handleNavigationValue(int currentSelection, int maxItems, int buttonNum) {
+  if (buttonNum == 2 && currentSelection > 0) {
+    return currentSelection - 1;
+  } else if (buttonNum == 4 && currentSelection < maxItems - 1) {
+    return currentSelection + 1;
+  }
+  return currentSelection;
+}
+
+//-----------------------------------------------------------------------------
+// 修正されたhomeScreen関数
+//-----------------------------------------------------------------------------
+void homeScreen() {
+  cls();
+  locateXY(0, 0);
+  putStr("Home");
+  
+  // 選択肢の表示（カーソルを付けずに表示）
+  locateXY(0, 2);
+  putStr(" Screen1");
+  locateXY(0, 3);
+  putStr(" Screen2");
+  locateXY(0, 4);
+  putStr(" Screen3");
+  
+  // 操作説明
+  locateXY(0, 6);
+  putStr("2/4:Select 6:Enter");
+  
+  // 初期カーソル位置を設定
+  updateCursor(2, 3, homeSelection); // 2行目から開始、3つの選択肢、現在の選択
+}
+
+//-----------------------------------------------------------------------------
+// 画面1
+//-----------------------------------------------------------------------------
+void screen1() {
+  dbgPutStr("demoScreen1\n"); // デバッグ出力
   cls();                                            // LCDをクリアする
-  locateXY(0,0); putStr("MP3 Player demo");
+  dbgPutStr("Cleared LCD\n"); // デバッグ出力
+  locateXY(0,0);
+  putStr("MP3 Player demo");
   for (int i=1; i<=5; i=i+1) {                      // スイッチ1〜5に付いて
     locateXY(2,i+1);
     putCh(chr(ord('0')+i));                         // スイッチの番号
@@ -92,37 +195,737 @@ void demoScreen() {
   }
   locateXY(2,7);
   putStr("6:stop");                                 // 6番のスイッチ
+
+    // 画面切り替え用の表示
+  locateXY(0,8);
+  putStr("Press 1 for Settings");
 }
 
 void asta(int y) {
-  demoScreen();
+  screen1();
   locateXY(0, y+1);
   putCh('*');
 }
 
+
 //-----------------------------------------------------------------------------
-// MP3 プレーヤのメインプロセス
+// 画面表示 2: 設定画面
 //-----------------------------------------------------------------------------
-// ここからプロセスの実行が始まる
+//-----------------------------------------------------------------------------
+// グローバル変数：状態を保持
+//-----------------------------------------------------------------------------
+int mode = 0;            // 動作状態(0:選択中, 1:設定中)
+int m_select = 0;        // 設定状態(0:音量, 1:電源)
+int m_volume = 1;        // 音量(0~10)
+int temp_volume = 1;     // 選択中の音量(決定ボタンで確定)
+int powerIndex = 0;      // 電源状態(0:ON, 1:OFF)
+int temp_powerIndex = 0; // 選択中の電源状態(決定ボタンで確定)
+//-----------------------------------------------------------------------------
+// 修正されたscreen2関数
+//-----------------------------------------------------------------------------
+void screen2() {
+  cls();
+  locateXY(0,0); putStr("Settings");
+  
+  // volume行
+  locateXY(0,2);
+  putStr(" "); // 初期状態では空白
+  locateXY(2,2);
+  putStr("volume: ");
+  if (m_select == 0 && mode == 1) {
+    putDec(temp_volume, 2);
+  } else {
+    putDec(m_volume, 2);
+  }
+
+  // power行
+  locateXY(0,3);
+  putStr(" "); // 初期状態では空白
+  locateXY(2,3);
+  putStr("power : ");
+  if (m_select == 1 && mode == 1) {
+    if (temp_powerIndex == 0) {
+      putStr("ON");
+    } else {
+      putStr("OFF");
+    }
+  } else {
+    if (powerIndex == 0) {
+      putStr("ON");
+    } else {
+      putStr("OFF");
+    }
+  }
+  
+  // 画面切り替え用の表示
+  locateXY(0,6);
+  putStr("Press 1 for MP3 Player");
+  
+  // 操作説明
+  locateXY(0,7);
+  putStr("2/4:Select 6:Enter");
+  
+  // カーソル位置を設定
+  updateCursor(2, 2, m_select); // 2行目から開始、2つの選択肢、現在の選択
+}
+
+
+//-----------------------------------------------------------------------------
+// 設定画面での操作処理
+void act_settings(I_StgSt input) {
+  int sw = input.sw;
+  int num = swToNum(sw);
+
+  if (mode == 0) {
+    // 選択モード(音量か、電源か)
+    if (num == 2 || num == 4) {                    // SW2(上) または SW4(下)
+      m_select = 1 - m_select;
+    } else if (num == 6) {                         // SW6(決定)
+      mode = 1;                                    // 決定ボタンが押され、各値設定モードに移行
+    }
+  } else {
+    // 音量設定
+    if (m_select == 0) {
+      if (num == 2 && temp_volume < 9) {          // SW2(上)　上限9
+        temp_volume = temp_volume + 1;
+        up_volume();                             // 音量UP処理（実装されていれば呼び出す）
+      }
+      if (num == 4 && temp_volume > 1) {           // SW4(下)　下限1
+        temp_volume = temp_volume - 1;
+        down_volume();                           // 音量DOWN処理（実装されていれば呼び出す）
+      }
+      if (num == 6) {                              // SW6(決定)
+        m_volume = temp_volume;
+        mode = 0;
+      }
+    }
+    // 電源設定
+    else if (m_select == 1) {
+      if (num == 2 || num == 4) {                  // SW2(上) または SW4(下)
+        temp_powerIndex = 1 - temp_powerIndex;
+      }
+      if (num == 6) {                              // SW6(決定)
+        powerIndex = temp_powerIndex;
+        mode = 0;                                  // 決定ボタンが押され、選択モードに戻る
+      }
+    }
+    else {
+      if (num == 2 || num == 4) {                  // SW2(上) または SW4(下)
+        temp_powerIndex = 1 - temp_powerIndex;
+      }
+      if (num == 6) {                              // SW6(決定)
+        powerIndex = temp_powerIndex;
+        if (powerIndex == 1) {
+          cls();
+          locateXY(0, 2);
+          putStr("Shutting down...");
+          sleep(1000);
+          // power_off();                           // 実際の電源OFF処理があれば呼び出す
+        }
+        mode = 0;
+      }
+    }
+  }
+}
+
+
+
+//-----------------------------------------------------------------------------
+// 画面表示 3: サンプル画面
+//-----------------------------------------------------------------------------
+// void screen3() {
+//   cls();
+//   locateXY(0,0);
+//   putStr("Screen3");
+  
+//   locateXY(0,2);
+//   putStr("This is Screen3");
+//   locateXY(0,3);
+//   putStr("Sample content");
+  
+//   // 操作説明
+//   locateXY(0,6);
+//   putStr("Press 1 for Home");
+// }
+
+
+//-----------------------------------------------------------------------------
+// 画面表示 3: サンプル画面（修正版）
+//-----------------------------------------------------------------------------
+int screen3Selection = 0;                          // Screen3での選択項目
+
+// void screen3() {
+//   cls();
+//   locateXY(0,0);
+//   putStr("Screen3");
+  
+//   // 選択肢の表示
+//   locateXY(0,2);
+//   putStr(" Option A");
+//   locateXY(0,3);
+//   putStr(" Option B");
+//   locateXY(0,4);
+//   putStr(" Option C");
+  
+//   // 操作説明
+//   locateXY(0,6);
+//   putStr("2/4:Select 6:Enter");
+//   locateXY(0,7);
+//   putStr("Press 1 for Home");
+  
+//   // カーソル位置を設定
+//   updateCursor(2, 3, screen3Selection); // 2行目から開始、3つの選択肢、現在の選択
+// }
+
+
+// 再生オプションの状態
+boolean is_loop_enabled = false;
+boolean is_repeat_enabled = false;
+boolean is_shuffle_enabled = false;
+song currentSong;         // 現在再生中の曲（構造体）
+int idx = 0;                                       // 再生中の曲のインデックス（0から始まる）
+int playstatus = 0;                             // 再生状態 (0:停止, 1:再生中)
+
+
+// 配列の長さを取得するヘルパー関数
+int length(song[] arr) {
+    if (arr == null) return 0;
+    
+    int count = 0;
+    // song構造体のpathがnullまたはidが-1の場合を終端とする
+    // while (arr[count].path != null && arr[count].id != -1) {
+    while (arr[count].path != null && arr[count].index != -1) {
+        count=count + 1; // 有効な曲がある限りカウント
+    }
+    return count;
+}
+
+public void setCurrentSong(song[] queue) {
+  if (queue != null && idx >= 0 && idx < length(queue)) {
+    currentSong = queue[idx];   // グローバル変数にコピー
+  } else {
+    currentSong.index = -1;     // 無効な曲
+  }
+}
+
+void screen3() {
+  cls();
+
+  // タイトル
+  locateXY(0, 0);
+  putStr("再生モード");
+
+  // L/R/S モード表示
+  locateXY(14, 1);
+  if (is_loop_enabled) putStr("L"); else putStr("-");
+  putStr("/");
+  if (is_repeat_enabled) putStr("R"); else putStr("-");
+  putStr("/");
+  if (is_shuffle_enabled) putStr("S"); else putStr("-");
+
+  // ファイル名取得（idx + 1）を使って screen1 と一致
+  // char[] fname = mp3FilesGetName(idx + 1);
+  // if (fname != null) {
+  //   locateXY(2, 3);
+  //   putStr(fname);
+  // } else {
+  //   locateXY(2, 3);
+  //   putStr("(no song)");
+  // }
+
+  // song s = get_song(queue);
+  // if (s != null) {
+  //   locateXY(2, 3);
+  //   putStr(s.name);
+  // }
+
+  setCurrentSong(queue);
+
+  if (currentSong.index != -1) {
+    locateXY(2, 3);
+    putStr(currentSong.name);
+  }
+
+    // パス表示（あれば）
+  char[] path = mp3FilesGetPath(idx + 1);
+  if (path != null) {
+    locateXY(2, 4);
+    putStr(path);
+  } else {
+    locateXY(2, 4);
+    putStr("N/A");
+  }
+
+  // 再生状態
+  locateXY(6, 5);
+  if (playstatus == 1) {
+    putStr("||");
+    locateXY(6, 6);
+    putStr("再生中");
+  } else {
+    putStr(">|");
+    locateXY(6, 6);
+    putStr("停止中");
+  }
+
+  // 前/次
+  locateXY(2, 5); putStr("<");
+  locateXY(10, 5); putStr(">");
+
+  // 操作説明
+  locateXY(0, 7);
+  putStr("1:戻る 2/4:↑↓ 3/5:< > 6:切替");
+}
+
+int streamSelect = 0;  // 選択カーソル：0=再生/停止, 1=Repeat, 2=Loop, 3=Shuffle
+
+void act_streamMng(int num) {
+  // カーソル移動
+  int newSel = handleNavigationValue(streamSelect, 4, num);
+  if (newSel != streamSelect) {
+    streamSelect = newSel;
+    screen3();
+    return;
+  }
+
+  // 曲の再生/制御など
+  if (num == 6) { // 切り替え操作
+    if (streamSelect == 0) {
+      // 再生/停止トグル
+      if (playstatus == 1) {
+        stop_c();
+      } else {
+        play_c(queue, idx);
+      }
+    } else if (streamSelect == 1) {
+      is_repeat_enabled = !is_repeat_enabled;
+    } else if (streamSelect == 2) {
+      is_loop_enabled = !is_loop_enabled;
+    } else if (streamSelect == 3) {
+      is_shuffle_enabled = !is_shuffle_enabled;
+    }
+    screen3(); // 状態更新を反映
+  }
+
+  // 曲送り／戻し
+  if (num == 3) {
+    previous(queue);
+    screen3();
+  } else if (num == 5) {
+    next(queue);
+    screen3();
+  }
+}
+
+
+
+
+//-----------------------------------------------------------------------------
+// Screen3での操作処理
+//-----------------------------------------------------------------------------
+// void act_screen3(int num) {
+//   int newSelection = handleNavigationValue(screen3Selection, 3, num);
+//   if (newSelection != screen3Selection) {
+//     screen3Selection = newSelection;
+//     screen3();
+//   } else if (num == 6) {                           // SW6(決定)
+//     // 各選択肢での処理
+//     if (screen3Selection == 0) {
+//       // Option A が選択された場合
+//       cls();
+//       locateXY(0, 2);
+//       putStr("Option A selected!");
+//       sleep(1000);
+//       screen3();
+//     } else if (screen3Selection == 1) {
+//       // Option B が選択された場合
+//       cls();
+//       locateXY(0, 2);
+//       putStr("Option B selected!");
+//       sleep(1000);
+//       screen3();
+//     } else if (screen3Selection == 2) {
+//       // Option C が選択された場合
+//       cls();
+//       locateXY(0, 2);
+//       putStr("Option C selected!");
+//       sleep(1000);
+//       screen3();
+//     }
+//   }
+// }
+
+
+
+//-----------------------------------------------------------------------------
+// メインプロセス
+//-----------------------------------------------------------------------------
+
 public void shellMain() {
   spiResetLcd();                                    // sleepを使用するので
   spiResetMp3();                                    //   プロセスが実行する
   mp3FilesInit();                                   // ファイル一覧を作る
-  demoScreen();                                     // 画面を初期化
+
+  dbgPutStr("Starting Application...\n");
+  
+  // 初期画面を表示
+  homeScreen();
+
+  dbgPutStr("Home screen displayed\n");
+  
   for (;;) {
     int sw = readSw();
     int num = swToNum(sw);
-    if (num==6) {                                   // 6 番のスイッチが押された
-      dbgPutStr("stop\n");
-      demoScreen();                                 // 画面を初期化
-      stop();
-    } else if (num>0 && mp3FilesGetName(num)!=null) { // ファイルと対応するボタン
-      demoScreen();                                 // 画面を初期化
-      asta(num);                                    // 再生中の曲に印を表示
-      play(mp3FilesGetPath(num));                   // 再生開始
-      dbgPutStr(mp3FilesGetPath(num));
-      dbgPutStr("\n");
+
+    // スイッチの値をデバッグ出力
+    if (sw != 0) {
+      if (num == 1) dbgPutStr("Switch 1 pressed\n");
+      else if (num == 2) dbgPutStr("Switch 2 pressed\n");
+      else if (num == 3) dbgPutStr("Switch 3 pressed\n");
+      else if (num == 4) dbgPutStr("Switch 4 pressed\n");
+      else if (num == 5) dbgPutStr("Switch 5 pressed\n");
+      else if (num == 6) dbgPutStr("Switch 6 pressed\n");
+      else dbgPutStr("Unknown switch pressed\n");
     }
+
+    // SW1でホーム画面に戻る（ホーム画面以外から）
+    if (num == 1 && currentScreen != 0) {
+      currentScreen = 0;
+      homeSelection = 0;                            // 選択をリセット
+      homeScreen();
+    }
+    
+// 【修正D】メインループ内のこの部分を変更
+    // // 各画面での処理
+    // else if (currentScreen == 0) {                  // ホーム画面
+    //   if (num == 2) {                               // 上移動
+    //     homeSelection = homeSelection - 1;
+    //     if (homeSelection < 0) homeSelection = 2;
+    //     homeScreen();                             // homeScreen()から変更
+    //     // homeScreenCursor();                         // homeScreen()から変更
+    //   } else if (num == 4) {                        // 下移動
+    //     homeSelection = homeSelection + 1;
+    //     if (homeSelection > 2) homeSelection = 0;
+    //     homeScreen();                             // homeScreen()から変更
+    //     // homeScreenCursor();                         // homeScreen()から変更
+    //   }
+    else if (currentScreen == 0) {                  // ホーム画面
+      int newSelection = handleNavigationValue(homeSelection, 3, num);
+      if (newSelection != homeSelection) {
+        homeSelection = newSelection;
+        homeScreen();                               // 選択が変更された場合は画面を更新
+      } else if (num == 6) {                        // 決定
+        currentScreen = homeSelection + 1;          // screen1=1, screen2=2, screen3=3
+        if (currentScreen == 1) {
+          screen1();
+        } else if (currentScreen == 2) {
+          screen2();
+        } else if (currentScreen == 3) {
+          screen3();
+        }
+      }
+    // 【修正C】ここまで
+    } else if (currentScreen == 1) {                // Screen1 (MP3プレーヤ)
+      if (num == 6) {                               // 6 番のスイッチが押された
+        dbgPutStr("stop\n");
+        screen1();                                  // 画面を初期化
+        stop_c();
+      } else if (num > 1 && num <= 5 && mp3FilesGetName(num) != null) { // ファイルと対応するボタン
+        idx = num - 1;  // 曲名取得のため、グローバル変数に保存
+        screen1();                                  // 画面を初期化
+        asta(num);                                  // 再生中の曲に印を表示
+        // play(mp3FilesGetPath(num));                 // 再生開始
+        play_c(queue, idx);   // queueとidxを渡す
+        dbgPutStr(mp3FilesGetPath(num));
+        dbgPutStr("\n");
+      }
+
+    } else if (currentScreen == 2) {                // Screen2 (設定)
+      I_StgSt input;
+      input.sw = sw;
+      act_settings(input);
+      screen2();                                    // 画面を更新
+    } else if (currentScreen == 3) {                // Screen3
+      // Screen3での独自処理があればここに追加
+      // 現在は何もしない
+      // act_screen3(num);                             // Screen3の操作処理
+      act_streamMng(num);                           // Screen3の操作処理
+    }
+    
     sleep(10);                                      // 10ms に一度
   }
 }
+
+
+// void homeScreen() {
+//   cls();
+//   locateXY(0, 0);
+//   putStr("Home");
+  
+//   // 選択肢の表示
+//   locateXY(0, 2);
+//   if (homeSelection == 0) {
+//     putStr("→ Screen1");
+//   } else {
+//     putStr("  Screen1");
+//   }
+  
+//   locateXY(0, 3);
+//   if (homeSelection == 1) {
+//     putStr("→ Screen2");
+//   } else {
+//     putStr("  Screen2");
+//   }
+  
+//   locateXY(0, 4);
+//   if (homeSelection == 2) {
+//     putStr("→ Screen3");
+//   } else {
+//     putStr("  Screen3");
+//   }
+  
+//   // 操作説明
+//   locateXY(0, 6);
+//   putStr("2/4:Select 6:Enter");
+// }
+
+// //-----------------------------------------------------------------------------
+// // MP3 プレーヤのメインプロセス
+// //-----------------------------------------------------------------------------
+// // ここからプロセスの実行が始まる
+// public void shellMain() {
+//   spiResetLcd();                                    // sleepを使用するので
+//   spiResetMp3();                                    //   プロセスが実行する
+//   mp3FilesInit();                                   // ファイル一覧を作る
+
+//   dbgPutStr("Starting MP3 Player...\n");  // ←追加
+  
+//   // 初期画面を表示
+//   demoScreen1();
+
+//   dbgPutStr("Initial screen displayed\n");  // ←追加
+  
+//   for (;;) {
+//     int sw = readSw();
+//     int num = swToNum(sw);
+
+
+//     // スイッチの値をデバッグ出力（最もシンプルな方法）
+//     if (sw != 0) { // スイッチが押されたときのみ
+//       // 各スイッチごとに個別にメッセージを出力
+//       if (num == 1) dbgPutStr("Switch 1 pressed\n");
+//       else if (num == 2) dbgPutStr("Switch 2 pressed\n");
+//       else if (num == 3) dbgPutStr("Switch 3 pressed\n");
+//       else if (num == 4) dbgPutStr("Switch 4 pressed\n");
+//       else if (num == 5) dbgPutStr("Switch 5 pressed\n");
+//       else if (num == 6) dbgPutStr("Switch 6 pressed\n");
+//       else dbgPutStr("Unknown switch pressed\n");
+//     }     
+
+//     if (num == 1) {                                 // SW1で画面切り替え
+//       if (currentScreen == 1) {
+//           currentScreen = 2;
+//           demoScreen2();
+//       } else {
+//           currentScreen = 1;
+//           demoScreen1();
+//       }
+
+//     } else if (currentScreen == 1) {                // MP3プレーヤ画面での操作
+//       if (num == 6) {                               // 6 番のスイッチが押された
+//         dbgPutStr("stop\n");
+//         demoScreen1();                              // 画面を初期化
+//         stop();
+//       } else if (num > 1 && num <= 5 && mp3FilesGetName(num) != null) { // ファイルと対応するボタン
+//         demoScreen1();                              // 画面を初期化
+//         asta(num);                                  // 再生中の曲に印を表示
+//         play(mp3FilesGetPath(num));                 // 再生開始
+//         dbgPutStr(mp3FilesGetPath(num));
+//         dbgPutStr("\n");
+//       }
+//     } else if (currentScreen == 2) {                // 設定画面での操作
+//       // handleSettings(num);
+//       I_StgSt input;
+//       input.sw = sw;
+//       act_settings(input);
+
+//       demoScreen2();                                // 画面を更新
+//     }
+    
+//     sleep(10);                                      // 10ms に一度
+//   }
+// }
+
+
+
+
+
+
+//-----------------------------------------------------------------------------
+// 画面表示
+//-----------------------------------------------------------------------------
+// void demoScreen() {
+//   cls();                                            // LCDをクリアする
+//   locateXY(0,0); putStr("MP3 Player demo");
+//   for (int i=1; i<=5; i=i+1) {                      // スイッチ1〜5に付いて
+//     locateXY(2,i+1);
+//     putCh(chr(ord('0')+i));                         // スイッチの番号
+//     putStr(":");
+//     char[] fname = mp3FilesGetName(i);              // 対応するファイル名
+//     if (fname!=null) putStr(fname);
+//   }
+//   locateXY(2,7);
+//   putStr("6:stop");                                 // 6番のスイッチ
+// }
+
+
+
+// void asta(int y) {
+//   demoScreen1();
+//   locateXY(0, y+1);
+//   putCh('*');
+// }
+//-----------------------------------------------------------------------------
+// MP3 プレーヤのメインプロセス
+//-----------------------------------------------------------------------------
+// ここからプロセスの実行が始まる
+// public void shellMain() {
+//   spiResetLcd();                                    // sleepを使用するので
+//   spiResetMp3();                                    //   プロセスが実行する
+//   mp3FilesInit();                                   // ファイル一覧を作る
+//   demoScreen();                                     // 画面を初期化
+//   for (;;) {
+//     int sw = readSw();
+//     int num = swToNum(sw);
+//     if (num==6) {                                   // 6 番のスイッチが押された
+//       dbgPutStr("stop\n");
+//       demoScreen();                                 // 画面を初期化
+//       stop();
+//     } else if (num>0 && mp3FilesGetName(num)!=null) { // ファイルと対応するボタン
+//       demoScreen();                                 // 画面を初期化
+//       asta(num);                                    // 再生中の曲に印を表示
+//       play(mp3FilesGetPath(num));                   // 再生開始
+//       dbgPutStr(mp3FilesGetPath(num));
+//       dbgPutStr("\n");
+//     }
+//     sleep(10);                                      // 10ms に一度
+//   }
+// }
+
+
+// //-----------------------------------------------------------------------------
+// // ホーム画面
+// //-----------------------------------------------------------------------------
+
+
+// // 【修正2】この関数を新しく追加する
+// void homeScreenCursor() {
+//   // 全ての行のカーソルをクリア
+//   for (int i = 0; i < 3; i=i+1) {
+//     locateXY(0, i + 2);
+//     putStr(" ");
+//   }
+  
+//   // 現在の選択位置にカーソルを表示
+//   locateXY(0, homeSelection + 2);
+//   putStr(">");
+// }
+
+// // 【修正1】homeScreen()関数を以下のように変更する
+// void homeScreen() {
+//   cls();
+//   locateXY(0, 0);
+//   putStr("Home");
+  
+//   // 選択肢の表示（→を付けずに表示）
+//   locateXY(0, 2);
+//   putStr("  Screen1");
+  
+//   locateXY(0, 3);
+//   putStr("  Screen2");
+  
+//   locateXY(0, 4);
+//   putStr("  Screen3");
+  
+//   // 操作説明
+//   locateXY(0, 6);
+//   putStr("2/4:Select 6:Enter");
+  
+//   // 初期カーソル位置を設定
+//   homeScreenCursor();
+// }
+
+
+// void screen2() {
+//   cls();
+//   locateXY(0,0); putStr("Settings");
+  
+//   // volume行
+//   locateXY(0,2);
+//   if (m_select == 0) {
+//     putStr(">");
+//   } else {
+//     putStr(" ");
+//   }
+//   locateXY(2,2);
+//   putStr("volume: ");
+//   if (m_select == 0 && mode == 1) {
+//     putDec(temp_volume, 2);
+//   } else {
+//     putDec(m_volume, 2);
+//   }
+
+//   // power行
+//   locateXY(0,3);
+//   if (m_select == 1) {
+//     putStr(">");
+//   } else {
+//     putStr(" ");
+//   }
+//   locateXY(2,3);
+//   putStr("power : ");
+//   if (m_select == 1 && mode == 1) {
+//     if (temp_powerIndex == 0) {
+//       putStr("ON");
+//     } else {
+//       putStr("OFF");
+//     }
+//   } else {
+//     if (powerIndex == 0) {
+//       putStr("ON");
+//     } else {
+//       putStr("OFF");
+//     }
+//   }
+  
+//   // 画面切り替え用の表示
+//   locateXY(0,6);
+//   putStr("Press 1 for MP3 Player");
+  
+//   // 操作説明
+//   locateXY(0,7);
+//   putStr("2/4:Select 6:Enter");
+// }
+
+
+//mainの部分を変更
+    // 各画面での処理
+    // else if (currentScreen == 0) {                  // ホーム画面
+    //   if (num == 2) {                               // 上移動
+    //     homeSelection = homeSelection - 1;
+    //     if (homeSelection < 0) homeSelection = 2;
+    //     homeScreen();
+    //   } else if (num == 4) {                        // 下移動
+    //     homeSelection = homeSelection + 1;
+    //     if (homeSelection > 2) homeSelection = 0;
+    //     homeScreen();
+    //   } else if (num == 6) {                        // 決定
+    //     currentScreen = homeSelection + 1;          // screen1=1, screen2=2, screen3=3
+    //     if (currentScreen == 1) {
+    //       screen1();
+    //     } else if (currentScreen == 2) {
+    //       screen2();
+    //     } else if (currentScreen == 3) {
+    //       screen3();
+    //     }
+    //   }
