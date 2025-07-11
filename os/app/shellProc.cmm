@@ -33,7 +33,7 @@
 #include "settingsMng.hmm"
 
 #include "lcd.hmm"
-// #include "mp3Proc.hmm"
+#include "mp3Proc.hmm"
 #include "streamMng.hmm"
 #include "spi.hmm"
 #include "mp3Files.hmm"
@@ -85,30 +85,30 @@ int swToNum(int sw) {
 }
       
 
-song[] queue;  // 再生キュー
+// song[] queue;  // 再生キュー
 
-void initQueue() {
-  queue = malloc(sizeof(song) * 1);  // 構造体5つ分のメモリを確保
+// void initQueue() {
+//   queue = malloc(sizeof(song) * 1);  // 構造体5つ分のメモリを確保
 
-  for (int i = 0; i < 5; i = i + 1) {
-    char[] name = mp3FilesGetName(i + 1);
-    char[] path = mp3FilesGetPath(i + 1);
+//   for (int i = 0; i < 5; i = i + 1) {
+//     char[] name = mp3FilesGetName(i + 1);
+//     char[] path = mp3FilesGetPath(i + 1);
 
-    if (name != null && path != null) {
-      song s;
-      s.index  = i;
-      s.name   = name;
-      s.fav    = false;
-      s.artist = "unknown";
-      s.path   = path;
-      queue[i] = s;
-    } else {
-      song s;
-      s.index = -1;
-      queue[i] = s;
-    }
-  }
-}
+//     if (name != null && path != null) {
+//       song s;
+//       s.index  = i;
+//       s.name   = name;
+//       s.fav    = false;
+//       s.artist = "unknown";
+//       s.path   = path;
+//       queue[i] = s;
+//     } else {
+//       song s;
+//       s.index = -1;
+//       queue[i] = s;
+//     }
+//   }
+// }
 
 //-----------------------------------------------------------------------------
 // 画面管理
@@ -272,9 +272,10 @@ void screen2() {
 
 //-----------------------------------------------------------------------------
 // 設定画面での操作処理
-void act_settings(I_StgSt input) {
-  int sw = input.sw;
-  int num = swToNum(sw);
+// void act_settings(I_StgSt input) {
+//   int sw = input.sw;
+//   int num = swToNum(sw);
+void act_settings(int num) {
 
   if (mode == 0) {
     // 選択モード(音量か、電源か)
@@ -331,230 +332,401 @@ void act_settings(I_StgSt input) {
 
 
 //-----------------------------------------------------------------------------
-// 画面表示 3: サンプル画面
+// 再生モード定義
 //-----------------------------------------------------------------------------
-// void screen3() {
-//   cls();
-//   locateXY(0,0);
-//   putStr("Screen3");
-  
-//   locateXY(0,2);
-//   putStr("This is Screen3");
-//   locateXY(0,3);
-//   putStr("Sample content");
-  
-//   // 操作説明
-//   locateXY(0,6);
-//   putStr("Press 1 for Home");
-// }
+#define MODE_NORMAL  0    // 通常再生
+#define MODE_LOOP    1    // ループ（全曲順次再生後、最初に戻る）
+#define MODE_REPEAT  2    // リピート（同じ曲を繰り返し）
+#define MODE_SHUFFLE 3    // シャッフル（ランダム順序で全曲再生）
+
+//-----------------------------------------------------------------------------
+// グローバル変数（改良版から統合）
+//-----------------------------------------------------------------------------
+int currentPlayMode = MODE_NORMAL;
+int[] originalOrder;      // 元の曲順を保持
+int[] shuffleOrder;       // シャッフル順序を保持
+int shuffleIndex = 0;     // シャッフル再生での現在位置
+int totalSongs = 0;       // 総曲数
+boolean[] playedInShuffle; // シャッフルで再生済みかどうか
+int shufflePlayedCount = 0; // シャッフルで再生済み曲数
+boolean wasStoppedByUser = false;  // 自動 vs ユーザー操作の区別
+
+
+int screen3Selection = 0;                          // Screen3での選択項目
+// 再生オプションの状態
+boolean is_loop_enabled = true;
+boolean is_repeat_enabled = false;
+boolean is_shuffle_enabled = false;
+boolean is_normal_enabled = true; // 通常再生は常に有効
+song currentSong;         // 現在再生中の曲（構造体）
+int idx = 0;                                       // 再生中の曲のインデックス（0から始まる）
+// int playstatus = 0;                             // 再生状態 (0:停止, 1:再生中)
+
+//-----------------------------------------------------------------------------
+// 改良版MP3プレーヤー初期化・管理関数
+//-----------------------------------------------------------------------------
+int getTotalSongs() {
+    int count = 0;
+    for (int i = 1; i <= 5; i = i + 1) {
+        if (mp3FilesGetName(i) != null) {
+            count = count + 1;
+        }
+    }
+    return count;
+}
+
+void initPlaylist() {
+    totalSongs = getTotalSongs();
+    if (totalSongs == 0) return;
+    
+    originalOrder = malloc(sizeof(int) * totalSongs);
+    shuffleOrder = malloc(sizeof(int) * totalSongs);
+    playedInShuffle = malloc(sizeof(boolean) * totalSongs);
+    
+    int index = 0;
+    for (int i = 1; i <= 5; i = i + 1) {
+        if (mp3FilesGetName(i) != null) {
+            originalOrder[index] = i;
+            shuffleOrder[index] = i;
+            playedInShuffle[index] = false;
+            index = index + 1;
+        }
+    }
+}
+
+void generateShuffleOrder() {
+    if (totalSongs <= 1) return;
+    
+    for (int i = 0; i < totalSongs; i = i + 1) {
+        shuffleOrder[i] = originalOrder[i];
+        playedInShuffle[i] = false;
+    }
+    
+    // Fisher-Yates シャッフル
+    for (int i = totalSongs - 1; i > 0; i = i - 1) {
+        int j = rand() % (i + 1);
+        int temp = shuffleOrder[i];
+        shuffleOrder[i] = shuffleOrder[j];
+        shuffleOrder[j] = temp;
+    }
+    
+    shuffleIndex = 0;
+    shufflePlayedCount = 0;
+}
+
+int getCurrentSongNumber() {
+    if (currentPlayMode == MODE_SHUFFLE) {
+        if (shuffleIndex >= 0 && shuffleIndex < totalSongs) {
+            return shuffleOrder[shuffleIndex];
+        }
+    }
+    return idx + 1;
+}
+
+int getSongIndex(int songNumber) {
+    for (int i = 0; i < totalSongs; i = i + 1) {
+        if (originalOrder[i] == songNumber) {
+            return i;
+        }
+    }
+    return 0;
+}
+
+void changePlayMode(int newMode) {
+    int oldMode = currentPlayMode;
+    currentPlayMode = newMode;
+    int currentSong = getCurrentSongNumber();
+    
+    // switch文をif-else文に変更
+    if (newMode == MODE_NORMAL) {
+        idx = 0;
+    } else if (newMode == MODE_LOOP) {
+        idx = getSongIndex(currentSong);
+    } else if (newMode == MODE_REPEAT) {
+        idx = getSongIndex(currentSong);
+    } else if (newMode == MODE_SHUFFLE) {
+        generateShuffleOrder();
+        for (int i = 0; i < totalSongs; i = i + 1) {
+            if (shuffleOrder[i] == currentSong) {
+                shuffleIndex = i;
+                break;
+            }
+        }
+        idx = getSongIndex(currentSong);
+    }
+    
+    // 各フラグの設定
+    is_normal_enabled = (newMode == MODE_NORMAL);
+    is_loop_enabled = (newMode == MODE_LOOP);
+    is_repeat_enabled = (newMode == MODE_REPEAT);
+    is_shuffle_enabled = (newMode == MODE_SHUFFLE);
+}
+
+char[] getPlayModeString() {
+    // switch文をif-else文に変更
+    if (currentPlayMode == MODE_NORMAL) {
+        return "Normal";
+    } else if (currentPlayMode == MODE_LOOP) {
+        return "Loop";
+    } else if (currentPlayMode == MODE_REPEAT) {
+        return "Repeat";
+    } else if (currentPlayMode == MODE_SHUFFLE) {
+        return "Shuffle";
+    }
+    return "Unknown";
+}
+
+
+
+
+//-----------------------------------------------------------------------------
+// 改良版screen3()（既存関数を改良）
+//-----------------------------------------------------------------------------
+void screen3() {
+    cls();
+    // タイトル
+    locateXY(0, 0);
+    putStr("Play Mode");
+    locateXY(10, 0); // 右側に曲番号を表示
+    putDec(idx + 1, 1); // 現在の曲番号（1から始まる）
+    putStr("/");
+    putDec(getTotalSongs(), 1); // 総曲数
+    
+    // L/R/S モード表示(全部で16文字)
+    locateXY(10, 1);
+    if (is_loop_enabled) putStr("L");
+    else putStr("-");
+    putStr("/");
+    if (is_repeat_enabled) putStr("R");
+    else putStr("-");
+    putStr("/");
+    if (is_shuffle_enabled) putStr("S");
+    else putStr("-");
+    
+    // ファイル名取得（idx + 1）を使って screen1 と一致
+    // 変更後（シンプルな直接取得）
+    int songNum = idx + 1; // mp3FilesGetName は 1 から始まる
+    char[] fname = mp3FilesGetName(songNum); // char[] → char*
+    if (fname != null) {
+        locateXY(2, 3);
+        putStr(fname);
+    }
+    
+    // パス表示（あれば）
+    char[] path = mp3FilesGetPath(idx + 1); // char[] → char*
+    if (path != null) {
+        locateXY(2, 4);
+        putStr(path);
+    } else {
+        locateXY(2, 4);
+        putStr("N/A");
+    }
+    
+    // 再生状態
+    locateXY(6, 5);
+    if (playstatus == 1) {
+        putStr("||");
+        locateXY(6, 6);
+        putStr("再生中");
+    } else {
+        putStr(">|");
+        locateXY(6, 6);
+        putStr("停止中");
+    }
+    
+    // 前/次
+    locateXY(2, 5);
+    putStr("<");
+    locateXY(10, 5);
+    putStr(">");
+    
+    // 操作説明
+    locateXY(0, 7);
+    putStr("1:戻る 2/4:↑↓ 3:mode 4:next 5:決定 6:prev");
+}
 
 
 //-----------------------------------------------------------------------------
 // 画面表示 3: サンプル画面（修正版）
 //-----------------------------------------------------------------------------
-int screen3Selection = 0;                          // Screen3での選択項目
 
-// void screen3() {
-//   cls();
-//   locateXY(0,0);
-//   putStr("Screen3");
-  
-//   // 選択肢の表示
-//   locateXY(0,2);
-//   putStr(" Option A");
-//   locateXY(0,3);
-//   putStr(" Option B");
-//   locateXY(0,4);
-//   putStr(" Option C");
-  
-//   // 操作説明
-//   locateXY(0,6);
-//   putStr("2/4:Select 6:Enter");
-//   locateXY(0,7);
-//   putStr("Press 1 for Home");
-  
-//   // カーソル位置を設定
-//   updateCursor(2, 3, screen3Selection); // 2行目から開始、3つの選択肢、現在の選択
-// }
+void stopPlay() {
+  wasStoppedByUser = true;  // ユーザーによる停止
+  playstatus = 0;
 
-
-// 再生オプションの状態
-boolean is_loop_enabled = false;
-boolean is_repeat_enabled = false;
-boolean is_shuffle_enabled = false;
-song currentSong;         // 現在再生中の曲（構造体）
-int idx = 0;                                       // 再生中の曲のインデックス（0から始まる）
-int playstatus = 0;                             // 再生状態 (0:停止, 1:再生中)
-
-
-// 配列の長さを取得するヘルパー関数
-int length(song[] arr) {
-    if (arr == null) return 0;
-    
-    int count = 0;
-    // song構造体のpathがnullまたはidが-1の場合を終端とする
-    // while (arr[count].path != null && arr[count].id != -1) {
-    while (arr[count].path != null && arr[count].index != -1) {
-        count=count + 1; // 有効な曲がある限りカウント
-    }
-    return count;
-}
-
-public void setCurrentSong(song[] queue) {
-  if (queue != null && idx >= 0 && idx < length(queue)) {
-    currentSong = queue[idx];   // グローバル変数にコピー
-  } else {
-    currentSong.index = -1;     // 無効な曲
-  }
-}
-
-void screen3() {
-  cls();
-
-  // タイトル
-  locateXY(0, 0);
-  putStr("再生モード");
-
-  // L/R/S モード表示
-  locateXY(14, 1);
-  if (is_loop_enabled) putStr("L"); else putStr("-");
-  putStr("/");
-  if (is_repeat_enabled) putStr("R"); else putStr("-");
-  putStr("/");
-  if (is_shuffle_enabled) putStr("S"); else putStr("-");
-
-  // ファイル名取得（idx + 1）を使って screen1 と一致
-  // char[] fname = mp3FilesGetName(idx + 1);
-  // if (fname != null) {
-  //   locateXY(2, 3);
-  //   putStr(fname);
-  // } else {
-  //   locateXY(2, 3);
-  //   putStr("(no song)");
-  // }
-
-  // song s = get_song(queue);
-  // if (s != null) {
-  //   locateXY(2, 3);
-  //   putStr(s.name);
-  // }
-
-  setCurrentSong(queue);
-
-  if (currentSong.index != -1) {
-    locateXY(2, 3);
-    putStr(currentSong.name);
-  }
-
-    // パス表示（あれば）
-  char[] path = mp3FilesGetPath(idx + 1);
-  if (path != null) {
-    locateXY(2, 4);
-    putStr(path);
-  } else {
-    locateXY(2, 4);
-    putStr("N/A");
-  }
-
-  // 再生状態
-  locateXY(6, 5);
-  if (playstatus == 1) {
-    putStr("||");
-    locateXY(6, 6);
-    putStr("再生中");
-  } else {
-    putStr(">|");
-    locateXY(6, 6);
-    putStr("停止中");
-  }
-
-  // 前/次
-  locateXY(2, 5); putStr("<");
-  locateXY(10, 5); putStr(">");
-
-  // 操作説明
-  locateXY(0, 7);
-  putStr("1:戻る 2/4:↑↓ 3/5:< > 6:切替");
-}
-
-int streamSelect = 0;  // 選択カーソル：0=再生/停止, 1=Repeat, 2=Loop, 3=Shuffle
-
-void act_streamMng(int num) {
-  // カーソル移動
-  int newSel = handleNavigationValue(streamSelect, 4, num);
-  if (newSel != streamSelect) {
-    streamSelect = newSel;
-    screen3();
-    return;
-  }
-
-  // 曲の再生/制御など
-  if (num == 6) { // 切り替え操作
-    if (streamSelect == 0) {
-      // 再生/停止トグル
-      if (playstatus == 1) {
-        stop_c();
-      } else {
-        play_c(queue, idx);
-      }
-    } else if (streamSelect == 1) {
-      is_repeat_enabled = !is_repeat_enabled;
-    } else if (streamSelect == 2) {
-      is_loop_enabled = !is_loop_enabled;
-    } else if (streamSelect == 3) {
-      is_shuffle_enabled = !is_shuffle_enabled;
-    }
-    screen3(); // 状態更新を反映
-  }
-
-  // 曲送り／戻し
-  if (num == 3) {
-    previous(queue);
-    screen3();
-  } else if (num == 5) {
-    next(queue);
+  stop();
+  // playstatus = 0;
+  // 画面が現在Screen3の場合は画面を更新
+  if (currentScreen == 3) {
     screen3();
   }
 }
 
-
-
-
-//-----------------------------------------------------------------------------
-// Screen3での操作処理
-//-----------------------------------------------------------------------------
-// void act_screen3(int num) {
-//   int newSelection = handleNavigationValue(screen3Selection, 3, num);
-//   if (newSelection != screen3Selection) {
-//     screen3Selection = newSelection;
-//     screen3();
-//   } else if (num == 6) {                           // SW6(決定)
-//     // 各選択肢での処理
-//     if (screen3Selection == 0) {
-//       // Option A が選択された場合
-//       cls();
-//       locateXY(0, 2);
-//       putStr("Option A selected!");
-//       sleep(1000);
-//       screen3();
-//     } else if (screen3Selection == 1) {
-//       // Option B が選択された場合
-//       cls();
-//       locateXY(0, 2);
-//       putStr("Option B selected!");
-//       sleep(1000);
-//       screen3();
-//     } else if (screen3Selection == 2) {
-//       // Option C が選択された場合
-//       cls();
-//       locateXY(0, 2);
-//       putStr("Option C selected!");
-//       sleep(1000);
-//       screen3();
-//     }
+// void startPlay() {
+//   int songNum = idx + 1;  // mp3FilesGetPath は 1 から始まる
+//   char[] path = mp3FilesGetPath(songNum);
+//   if (path != null) {
+//     play(path);
+//     playstatus = 1;
 //   }
+//   // 画面が現在Screen3の場合は画面を更新
+//   if (currentScreen == 3) {
+//     screen3();
+//   }
+
+//   // 自動再生スタート
+//   // wasStoppedByUser = false;
+//   // sleep(1000);
+//   // playstatus = 0;
 // }
 
+void startPlay() {
+  int songNum = idx + 1;
+  char[] path = mp3FilesGetPath(songNum);
+  if (path != null) {
+    play(path);              // 再生要求
+    playstatus = 1;
+  }
+
+  if (currentScreen == 3) {
+    screen3();
+  }
+}
+
+
+
+//-----------------------------------------------------------------------------
+// 改良版次/前曲移動（既存関数を改良）
+//-----------------------------------------------------------------------------
+void nextSong() {
+    if (totalSongs == 0) return;
+    if (currentPlayMode == MODE_REPEAT) {
+        return;
+    }
+    boolean wasPlaying = (playstatus == 1); // boolean → int
+    if (wasPlaying) {
+        stopPlay();
+    }
+    
+    // switch文をif-else文に変更
+    if (currentPlayMode == MODE_NORMAL) {
+        idx = idx + 1;
+        if (idx >= totalSongs) {
+            idx = totalSongs - 1;
+            return;
+        }
+    } else if (currentPlayMode == MODE_LOOP) {
+        idx = (idx + 1) % totalSongs;
+    } else if (currentPlayMode == MODE_SHUFFLE) {
+        shuffleIndex = shuffleIndex + 1;
+        if (shuffleIndex >= totalSongs) {
+            generateShuffleOrder();
+        }
+        idx = getSongIndex(shuffleOrder[shuffleIndex]);
+    }
+    
+    // if (wasPlaying) {
+    //     startPlay();
+    // }
+    startPlay(); // 再生を開始
+}
+
+void previousSong() {
+    if (totalSongs == 0) return;
+    if (currentPlayMode == MODE_REPEAT) {
+        return;
+    }
+    boolean wasPlaying = (playstatus == 1); // boolean → int
+    if (wasPlaying) {
+        stopPlay();
+    }
+    
+    // switch文をif-else文に変更
+    if (currentPlayMode == MODE_NORMAL) {
+        idx = idx - 1;
+        if (idx < 0) {
+            idx = 0;
+            return;
+        }
+    } else if (currentPlayMode == MODE_LOOP) {
+        idx = (idx - 1 + totalSongs) % totalSongs;
+    } else if (currentPlayMode == MODE_SHUFFLE) {
+        shuffleIndex = shuffleIndex - 1;
+        if (shuffleIndex < 0) {
+            generateShuffleOrder();
+            shuffleIndex = totalSongs - 1;
+        }
+        idx = getSongIndex(shuffleOrder[shuffleIndex]);
+    }
+    
+    // if (wasPlaying) {
+    //     startPlay();
+    // }
+    startPlay(); // 再生を開始
+}
+
+
+//-----------------------------------------------------------------------------
+// 改良版act_streamMng()（既存関数を改良）
+//-----------------------------------------------------------------------------
+void act_streamMng(int num) {
+    // モード切り替え（3番ボタン）
+    if (num == 3) {
+        int newMode = (currentPlayMode + 1) % 4;
+        changePlayMode(newMode);
+        screen3();
+        return;
+    }
+
+    // 再生/停止切り替え（5番ボタン）
+    if (num == 5) {
+        if (playstatus == 1) {
+            stopPlay();
+        } else {
+            startPlay();
+        }
+        screen3();
+        return;
+    }
+
+  // リピートモードでは次/前の曲移動のみ無効化（再生制御は有効）
+    if (currentPlayMode == MODE_REPEAT && (num == 4 || num == 6)) {
+        return; // 次/前の曲移動のみブロック
+    }
+
+    // 次の曲（4番ボタン）
+    if (num == 6) {
+        nextSong();
+        screen3();
+        return;
+    }
+
+    // 前の曲（6番ボタン）
+    if (num == 4) {
+        previousSong();
+        screen3();
+        return;
+    }
+}
+
+//-----------------------------------------------------------------------------
+// 曲終了時の自動再生制御（新規追加）
+//-----------------------------------------------------------------------------
+void onSongEnd() {
+    if (currentPlayMode == MODE_NORMAL) {
+        if (idx + 1 < totalSongs) {
+            nextSong();
+        } else {
+            stopPlay();
+        }
+    } else if (currentPlayMode == MODE_LOOP) {
+        nextSong();
+    } else if (currentPlayMode == MODE_REPEAT) {
+        startPlay();
+    } else if (currentPlayMode == MODE_SHUFFLE) {
+        nextSong();
+    }
+}
 
 
 //-----------------------------------------------------------------------------
@@ -567,13 +739,29 @@ public void shellMain() {
   mp3FilesInit();                                   // ファイル一覧を作る
 
   dbgPutStr("Starting Application...\n");
-  
+
+  // 改良版プレーヤー初期化
+  initPlaylist();
+  currentPlayMode = MODE_NORMAL;
+  idx = 0;
+  playstatus = 0;
+  is_normal_enabled = true;
+  is_loop_enabled = false;
+  is_repeat_enabled = false;
+  is_shuffle_enabled = false;
+  int prevStatus = 0; // ← ここを追加！
+
   // 初期画面を表示
   homeScreen();
 
   dbgPutStr("Home screen displayed\n");
   
   for (;;) {
+    // prevStatus = playstatus;
+    if (playstatus == -1 && !wasStoppedByUser) {
+      onSongEnd();  // 自動再生処理（リピート・ループなど）
+    }
+
     int sw = readSw();
     int num = swToNum(sw);
 
@@ -635,15 +823,21 @@ public void shellMain() {
         screen1();                                  // 画面を初期化
         asta(num);                                  // 再生中の曲に印を表示
         // play(mp3FilesGetPath(num));                 // 再生開始
-        play_c(queue, idx);   // queueとidxを渡す
+
+        // play_c(queue, idx);   // queueとidxを渡す
+        // 変更後
+        play(mp3FilesGetPath(num));                 // 再生開始
+        playstatus = 1;                             // 再生状態を更新
+
         dbgPutStr(mp3FilesGetPath(num));
         dbgPutStr("\n");
       }
 
     } else if (currentScreen == 2) {                // Screen2 (設定)
-      I_StgSt input;
-      input.sw = sw;
-      act_settings(input);
+      // I_StgSt input;
+      // input.sw = sw;
+      // act_settings(input);
+      act_settings(num);  // int型でそのまま渡す
       screen2();                                    // 画面を更新
     } else if (currentScreen == 3) {                // Screen3
       // Screen3での独自処理があればここに追加
@@ -929,3 +1123,457 @@ public void shellMain() {
     //       screen3();
     //     }
     //   }
+
+
+
+  // // 曲の再生/制御など
+  // if (num == 6) { // 切り替え操作
+  //   if (streamSelect == 0) {
+  //     // 再生/停止トグル
+  //     if (playstatus == 1) {
+  //       // stop_c();
+  //       stopPlay(); // 停止
+  //     } else {
+  //       // play_c(queue, idx);
+  //       startPlay(); // 再生
+        
+  //     }
+  //   } else if (streamSelect == 1) {
+  //     is_repeat_enabled = !is_repeat_enabled;
+  //   } else if (streamSelect == 2) {
+  //     is_loop_enabled = !is_loop_enabled;
+  //   } else if (streamSelect == 3) {
+  //     is_shuffle_enabled = !is_shuffle_enabled;
+  //   }
+  //   screen3(); // 状態更新を反映
+  // }
+
+  // // ボタン3: 曲順モードの切り替え
+  // if (num == 3) {
+  //     // 曲順モードを順次切り替え
+  //     currentPlayMode = (currentPlayMode + 1) % 4;
+        
+  //     // 各フラグを更新
+  //     is_repeat_enabled = (currentPlayMode == MODE_REPEAT);
+  //     is_loop_enabled = (currentPlayMode == MODE_LOOP);
+  //     is_shuffle_enabled = (currentPlayMode == MODE_SHUFFLE);
+        
+  //     screen3(); // 状態更新を反映
+  //     return;
+  // }
+
+  // if (num == 5) { // 決定ボタン
+  //     if (streamSelect == 0) {
+  //         // 再生/停止トグル
+  //         if (playstatus == 1) {
+  //             stopPlay(); // 停止
+  //         } else {
+  //             startPlay(); // 再生
+  //         }
+  //     } else if (streamSelect == 1) {
+  //         // ループモードに設定
+  //         currentPlayMode = MODE_LOOP;
+  //         is_repeat_enabled = false;
+  //         is_loop_enabled = true;
+  //         is_shuffle_enabled = false;
+  //     } else if (streamSelect == 2) {
+  //         // リピートモードに設定
+  //         currentPlayMode = MODE_REPEAT;
+  //         is_repeat_enabled = true;
+  //         is_loop_enabled = false;
+  //         is_shuffle_enabled = false;
+  //     } else if (streamSelect == 3) {
+  //         // シャッフルモードに設定
+  //         currentPlayMode = MODE_SHUFFLE;
+  //         is_repeat_enabled = false;
+  //         is_loop_enabled = false;
+  //         is_shuffle_enabled = true;
+  //     }
+  //     screen3(); // 状態更新を反映
+  // }
+// }
+
+
+
+
+//-----------------------------------------------------------------------------
+// Screen3での操作処理
+//-----------------------------------------------------------------------------
+// void act_screen3(int num) {
+//   int newSelection = handleNavigationValue(screen3Selection, 3, num);
+//   if (newSelection != screen3Selection) {
+//     screen3Selection = newSelection;
+//     screen3();
+//   } else if (num == 6) {                           // SW6(決定)
+//     // 各選択肢での処理
+//     if (screen3Selection == 0) {
+//       // Option A が選択された場合
+//       cls();
+//       locateXY(0, 2);
+//       putStr("Option A selected!");
+//       sleep(1000);
+//       screen3();
+//     } else if (screen3Selection == 1) {
+//       // Option B が選択された場合
+//       cls();
+//       locateXY(0, 2);
+//       putStr("Option B selected!");
+//       sleep(1000);
+//       screen3();
+//     } else if (screen3Selection == 2) {
+//       // Option C が選択された場合
+//       cls();
+//       locateXY(0, 2);
+//       putStr("Option C selected!");
+//       sleep(1000);
+//       screen3();
+//     }
+//   }
+// }
+
+
+
+
+
+// 配列の長さを取得するヘルパー関数
+// int length(song[] arr) {
+//     if (arr == null) return 0;
+    
+//     int count = 0;
+//     // song構造体のpathがnullまたはidが-1の場合を終端とする
+//     // while (arr[count].path != null && arr[count].id != -1) {
+//     while (arr[count].path != null && arr[count].index != -1) {
+//         count=count + 1; // 有効な曲がある限りカウント
+//     }
+//     return count;
+// }
+
+// public void setCurrentSong(song[] queue) {
+//   if (queue != null && idx >= 0 && idx < length(queue)) {
+//     currentSong = queue[idx];   // グローバル変数にコピー
+//   } else {
+//     currentSong.index = -1;     // 無効な曲
+//   }
+// }
+
+
+
+
+// void screen3() {
+//   cls();
+
+//   // タイトル
+//   locateXY(0, 0);
+//   putStr("Play Mode");
+//   locateXY(10, 0);  // 右側に曲番号を表示
+//   putDec(idx + 1, 1);  // 現在の曲番号（1から始まる）
+//   putStr("/");
+//   putDec(getTotalSongs(), 1);  // 総曲数
+
+//   // L/R/S モード表示(全部で16文字)
+//   locateXY(10, 1);
+//   if (is_loop_enabled) putStr("L"); else putStr("-");
+//   putStr("/");
+//   if (is_repeat_enabled) putStr("R"); else putStr("-");
+//   putStr("/");
+//   if (is_shuffle_enabled) putStr("S"); else putStr("-");
+
+//   // ファイル名取得（idx + 1）を使って screen1 と一致
+//   // char[] fname = mp3FilesGetName(idx + 1);
+//   // if (fname != null) {
+//   //   locateXY(2, 3);
+//   //   putStr(fname);
+//   // } else {
+//   //   locateXY(2, 3);
+//   //   putStr("(no song)");
+//   // }
+
+//   // song s = get_song(queue);
+//   // if (s != null) {
+//   //   locateXY(2, 3);
+//   //   putStr(s.name);
+//   // }
+
+//   // setCurrentSong(queue);
+
+//   // if (currentSong.index != -1) {
+//   //   locateXY(2, 3);
+//   //   putStr(currentSong.name);
+//   // }
+
+// //   // 変更後（シンプルな直接取得）
+// //   int songNum = idx + 1;  // mp3FilesGetName は 1 から始まる
+// //   char[] fname = mp3FilesGetName(songNum);
+// //   if (fname != null) {
+// //     locateXY(2, 3);
+// //     putStr(fname);
+// //   }
+
+// //     // パス表示（あれば）
+// //   char[] path = mp3FilesGetPath(idx + 1);
+// //   if (path != null) {
+// //     locateXY(2, 4);
+// //     putStr(path);
+// //   } else {
+// //     locateXY(2, 4);
+// //     putStr("N/A");
+// //   }
+
+// //   // 再生状態
+// //   locateXY(6, 5);
+// //   if (playstatus == 1) {
+// //     putStr("||");
+// //     locateXY(6, 6);
+// //     putStr("再生中");
+// //   } else {
+// //     putStr(">|");
+// //     locateXY(6, 6);
+// //     putStr("停止中");
+// //   }
+
+// //   // 前/次
+// //   locateXY(2, 5); putStr("<");
+// //   locateXY(10, 5); putStr(">");
+
+// //   // 操作説明
+// //   locateXY(0, 7);
+// //   // putStr("1:戻る 2/4:↑↓ 3/5:< > 6:切替");
+// //   putStr("1:戻る 2/4:↑↓ 3:mode 4:next 5:決定 6:prev");
+// // }
+
+
+
+
+
+
+
+// // 追加された部分
+// int getTotalSongs() {
+//   int count = 0;
+//   for (int i = 1; i <= 5; i = i + 1) {
+//     if (mp3FilesGetName(i) != null) {
+//       count = count + 1;
+//     }
+//   }
+//   return count;
+// }
+
+// void previousSong() {
+//     int totalSongs = getTotalSongs();
+//     if (totalSongs > 0) {
+//         // 現在再生中かどうかを記録
+//         boolean wasPlaying = (playstatus == 1);
+        
+//         // 再生中なら停止
+//         if (wasPlaying) {
+//             stopPlay();
+//         }
+        
+//         // 前の曲に移動
+//         idx = (idx - 1 + totalSongs) % totalSongs;
+        
+//         // 元々再生中だったなら新しい曲を再生開始
+//         if (wasPlaying) {
+//             startPlay();
+//         }
+//     }
+// }
+
+// // 前の曲を停止してから、次の曲を再生する
+// void nextSong() {
+//     int totalSongs = getTotalSongs();
+//     if (totalSongs > 0) {
+//         // 現在再生中かどうかを記録
+//         boolean wasPlaying = (playstatus == 1);
+        
+//         // 再生中なら停止
+//         if (wasPlaying) {
+//             stopPlay();
+//         }
+        
+//         // 次の曲に移動
+//         idx = (idx + 1) % totalSongs;
+        
+//         // 元々再生中だったなら新しい曲を再生開始
+//         if (wasPlaying) {
+//             startPlay();
+//         }
+//     }
+// }
+
+
+// void nextSong() {
+//   int totalSongs = getTotalSongs();
+//   if (totalSongs > 0) {
+//     idx = (idx + 1) % totalSongs;
+//   }
+// }
+
+// void previousSong() {
+//   int totalSongs = getTotalSongs();
+//   if (totalSongs > 0) {
+//     idx = (idx - 1 + totalSongs) % totalSongs;
+//   }
+// }
+
+
+// // 10:00時点のやつ
+// void screen3() {
+//   cls();
+
+//   // タイトル
+//   locateXY(0, 0);
+//   putStr("Play Mode");
+//   locateXY(10, 0);  // 右側に曲番号を表示
+//   putDec(idx + 1, 1);  // 現在の曲番号（1から始まる）
+//   putStr("/");
+//   putDec(getTotalSongs(), 1);  // 総曲数
+
+//   // L/R/S モード表示(全部で16文字)
+//   locateXY(10, 1);
+//   if (is_loop_enabled) putStr("L"); else putStr("-");
+//   putStr("/");
+//   if (is_repeat_enabled) putStr("R"); else putStr("-");
+//   putStr("/");
+//   if (is_shuffle_enabled) putStr("S"); else putStr("-");
+
+//   // ファイル名取得（idx + 1）を使って screen1 と一致
+//   // char[] fname = mp3FilesGetName(idx + 1);
+//   // if (fname != null) {
+//   //   locateXY(2, 3);
+//   //   putStr(fname);
+//   // } else {
+//   //   locateXY(2, 3);
+//   //   putStr("(no song)");
+//   // }
+
+//   // song s = get_song(queue);
+//   // if (s != null) {
+//   //   locateXY(2, 3);
+//   //   putStr(s.name);
+//   // }
+
+//   // setCurrentSong(queue);
+
+//   // if (currentSong.index != -1) {
+//   //   locateXY(2, 3);
+//   //   putStr(currentSong.name);
+//   // }
+
+//   // 変更後（シンプルな直接取得）
+//   int songNum = idx + 1;  // mp3FilesGetName は 1 から始まる
+//   char[] fname = mp3FilesGetName(songNum);
+//   if (fname != null) {
+//     locateXY(2, 3);
+//     putStr(fname);
+//   }
+
+//     // パス表示（あれば）
+//   char[] path = mp3FilesGetPath(idx + 1);
+//   if (path != null) {
+//     locateXY(2, 4);
+//     putStr(path);
+//   } else {
+//     locateXY(2, 4);
+//     putStr("N/A");
+//   }
+
+//   // 再生状態
+//   locateXY(6, 5);
+//   if (playstatus == 1) {
+//     putStr("||");
+//     locateXY(6, 6);
+//     putStr("再生中");
+//   } else {
+//     putStr(">|");
+//     locateXY(6, 6);
+//     putStr("停止中");
+//   }
+
+//   // 前/次
+//   locateXY(2, 5); putStr("<");
+//   locateXY(10, 5); putStr(">");
+
+//   // 操作説明
+//   locateXY(0, 7);
+//   // putStr("1:戻る 2/4:↑↓ 3/5:< > 6:切替");
+//   putStr("1:戻る 2/4:↑↓ 3:mode 4:next 5:決定 6:prev");
+// }
+
+// int streamSelect = 0;  // 選択カーソル：0=再生/停止, 1=Loop, 2=Repeat, 3=Shuffle
+
+
+
+// // 曲順モードの定義（defineを使用）
+// #define MODE_NORMAL  0    // 通常再生
+// #define MODE_LOOP    1    // ループ
+// #define MODE_REPEAT  2    // リピート
+// #define MODE_SHUFFLE 3    // シャッフル
+
+// int currentPlayMode = MODE_NORMAL; // 現在の再生モード
+
+// void act_streamMng(int num) {
+//     // カーソル移動
+//     int newSel = handleNavigationValue(streamSelect, 4, num);
+//     if (newSel != streamSelect) {
+//         streamSelect = newSel;
+//         screen3();
+//         return;
+//     }
+
+
+//   // ボタン3: 曲順モードの切り替え（Normal → Repeat → Loop → Shuffle → Normal...）
+//   if (num == 3) {
+//       // 曲順モードを順次切り替え
+//       currentPlayMode = (currentPlayMode + 1) % 4;
+        
+//       // 各フラグを更新
+//       if (currentPlayMode == MODE_NORMAL) {
+//           is_repeat_enabled = false;
+//           is_loop_enabled = false;
+//           is_shuffle_enabled = false;
+//       } else if (currentPlayMode == MODE_LOOP) {
+//           is_repeat_enabled = false;
+//           is_loop_enabled = true;
+//           is_shuffle_enabled = false;
+//       } else if (currentPlayMode == MODE_REPEAT) {
+//           is_repeat_enabled = true;
+//           is_loop_enabled = false;
+//           is_shuffle_enabled = false;
+//       } else if (currentPlayMode == MODE_SHUFFLE) {
+//           is_repeat_enabled = false;
+//           is_loop_enabled = false;
+//           is_shuffle_enabled = true;
+//       }
+        
+//       screen3(); // 状態更新を反映
+//       return;
+//   }
+
+//   // ボタン4：次の曲へ
+//   if (num == 6) {
+//     // next(queue);
+//     nextSong(); // 次の曲へ
+//     screen3();
+//   }
+
+//   // ボタン6：前の曲へ
+//   if (num == 4) {
+//     // previous(queue);
+//     previousSong(); // 前の曲へ
+//     screen3();
+//   }
+
+//   // その他のボタン操作（選択されたカーソル位置での操作）
+//   if (num == 5) { // 決定ボタン
+//       if (streamSelect == 0) {
+//           // 再生/停止トグル
+//           if (playstatus == 1) {
+//               stopPlay(); // 停止
+//           } else {
+//               startPlay(); // 再生
+//           }
+//       }
+//       // streamSelect == 1,2,3 の場合は何もしない（ボタン3で切り替えのみ）
+//       screen3(); // 状態更新を反映
+//   }

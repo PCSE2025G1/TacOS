@@ -32,4 +32,9 @@
 
 public void shellMain();
 
-void act_settings(I_StgSt input);
+// void act_settings(I_StgSt input);
+// 修正後（定義と合わせる）
+void act_settings(int num);
+
+// ✅ ここに追加
+void onSongEnd();
