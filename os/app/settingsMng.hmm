@@ -10,6 +10,9 @@
 //-----------------------------------------------------------------------------
 // 基本情報操作
 //-----------------------------------------------------------------------------
-public void up_volume();
-public void down_volume();
+public int volume;
+public void set_volume_level(int level);
+
+// public void up_volume();
+// public void down_volume();
 public void power_off();

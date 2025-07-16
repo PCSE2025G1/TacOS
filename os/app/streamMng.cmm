@@ -1,348 +1,342 @@
-#include "spi.hmm"
-
-/*
- * TacOS Source Code 2025 CE2実験
- * author: i19ishihara, i19urasaki, i19oota
- */
-/*
- * TacOS Source Code 2025 CE2実験
- * author: i19ishihara, i19urasaki, i19oota
- */
-
-#include <kernel.hmm>
-#include <fs.hmm>         // ファイル操作用
-#include <util.hmm>       // _AtoI, _ItoA, _Rand など
-#include "structures.hmm" // song 構造体などが定義されていると仮定
-#include "spi.hmm"        // spiWriteMp3Dat, spiFlushMp3 など SPI 制御用
-
-#define BUFSIZ 512 // MP3 ファイル用のバッファ
-
-// メッセージ (内部通信用)
-#define STOP_CMD 1  // 再生停止要求コマンド
-#define START_CMD 2 // 再生開始要求コマンド
-
-// レスポンス (内部通信用)
-#define OK_RESP 0
-#define ERR_RESP 1
-
-// // メッセージ
-// #define STOP  1                             // 再生停止要求メッセージ
-// #define START 2                             // 再生開始要求メッセージ
-
-// // レスポンス
-// #define OK  0
-// #define ERR 1
-
-// C--用のNULL定義
-#define NULL 0
-//-----------------------------------------------------------------------------
-
-// StreamMng クラス図に基づいたメンバー変数
-// song[] queue;     // 再生キュー
-int playstatus;   // 再生状態 (例: 0=停止, 1=再生中, 2=一時停止)
-int idx;          // 現在再生中の曲のキュー内のインデックス
-char[][] history; // 再生履歴 (ここでは簡略化のため char[][] としています)
-
-// 再生オプションの状態
-boolean is_loop_enabled = false;
-boolean is_repeat_enabled = false;
-boolean is_shuffle_enabled = false;
 
 
-// 履歴管理用の変数 (簡易的な実装)
-#define MAX_HISTORY_SIZE 10
-int history_count = 0;
+// #include "spi.hmm"
 
-// MP3 データ転送用のバッファ
-char[] mp3_data_buf = array(BUFSIZ);
+// /*
+//  * TacOS Source Code 2025 CE2実験
+//  * author: i19ishihara, i19urasaki, i19oota
+//  */
+// /*
+//  * TacOS Source Code 2025 CE2実験
+//  * author: i19ishihara, i19urasaki, i19oota
+//  */
 
-// ＊＊＊＊　重要！！　クライアントプロセスは一つだけの前提　＊＊＊＊
-int mp3_proc_link;        // メッセージ通信用のリンク (StreamMng内部でメッセージをやり取りするためのもの)
-boolean syncFlag = false; // クライアント(StreamMngのPublic関数呼び出し元)が同期待ちである
+// #include <kernel.hmm>
+// #include <fs.hmm>         // ファイル操作用
+// #include <util.hmm>       // _AtoI, _ItoA, _Rand など
+// #include "structures.hmm" // song 構造体などが定義されていると仮定
+// #include "spi.hmm"        // spiWriteMp3Dat, spiFlushMp3 など SPI 制御用
+
+// #define BUFSIZ 512 // MP3 ファイル用のバッファ
+
+// // メッセージ (内部通信用)
+// #define STOP_CMD 1  // 再生停止要求コマンド
+// #define START_CMD 2 // 再生開始要求コマンド
+
+// // レスポンス (内部通信用)
+// #define OK_RESP 0
+// #define ERR_RESP 1
+
+// // // メッセージ
+// // #define STOP  1                             // 再生停止要求メッセージ
+// // #define START 2                             // 再生開始要求メッセージ
+
+// // // レスポンス
+// // #define OK  0
+// // #define ERR 1
+
+// // C--用のNULL定義
+// #define NULL 0
+// //-----------------------------------------------------------------------------
+
+// // StreamMng クラス図に基づいたメンバー変数
+// // song[] queue;     // 再生キュー
+// int playstatus;   // 再生状態 (例: 0=停止, 1=再生中, 2=一時停止)
+// int idx;          // 現在再生中の曲のキュー内のインデックス
+// char[][] history; // 再生履歴 (ここでは簡略化のため char[][] としています)
+
+// // 再生オプションの状態
+// boolean is_loop_enabled = false;
+// boolean is_repeat_enabled = false;
+// boolean is_shuffle_enabled = false;
 
 
+// // 履歴管理用の変数 (簡易的な実装)
+// #define MAX_HISTORY_SIZE 10
+// int history_count = 0;
+
+// // MP3 データ転送用のバッファ
+// char[] mp3_data_buf = array(BUFSIZ);
+
+// // ＊＊＊＊　重要！！　クライアントプロセスは一つだけの前提　＊＊＊＊
+// int mp3_proc_link;        // メッセージ通信用のリンク (StreamMng内部でメッセージをやり取りするためのもの)
+// boolean syncFlag = false; // クライアント(StreamMngのPublic関数呼び出し元)が同期待ちである
 
 
-// // 一旦変数
-// song[] queue = {
-//     {1, "Song1", false, "Artist1", "/path/to/song1.mp3"},
-//     {2, "Song2", true, "Artist2", "/path/to/song2.mp3"},
-//     {3, "Song3", false, "Artist3", "/path/to/song3.mp3"}};
-
-// 配列の長さを取得するヘルパー関数
-int length(song[] arr) {
-    if (arr == null) return 0;
+// // 配列の長さを取得するヘルパー関数
+// int length(song[] arr) {
+//     if (arr == null) return 0;
     
-    int count = 0;
-    // song構造体のpathがnullまたはidが-1の場合を終端とする
-    // while (arr[count].path != null && arr[count].id != -1) {
-    while (arr[count].path != null && arr[count].index != -1) {
-        count=count + 1; // 有効な曲がある限りカウント
-    }
-    return count;
-}
-//-----------------------------------------------------------------------------
-// 音楽データ転送用の内部関数
-// (mp3Proc.cmm の trans 関数に相当)
-//-----------------------------------------------------------------------------
-void _trans_mp3_data(char[] path){
-    int fd = open(path, READ_MODE); // ファイルをオープン
-    if (fd < 0){                                  // オープンできない
-        send(mp3_proc_link, ERR_RESP); // クライアントにエラーを通知
-        return;                        // コマンド待に戻る
-    }
+//     int count = 0;
+//     // song構造体のpathがnullまたはidが-1の場合を終端とする
+//     // while (arr[count].path != null && arr[count].id != -1) {
+//     while (arr[count].path != null && arr[count].index != -1) {
+//         count=count + 1; // 有効な曲がある限りカウント
+//     }
+//     return count;
+// }
+// //-----------------------------------------------------------------------------
+// // 音楽データ転送用の内部関数
+// // (mp3Proc.cmm の trans 関数に相当)
+// //-----------------------------------------------------------------------------
+// void _trans_mp3_data(char[] path){
+//     int fd = open(path, READ_MODE); // ファイルをオープン
+//     if (fd < 0){                                  // オープンできない
+//         send(mp3_proc_link, ERR_RESP); // クライアントにエラーを通知
+//         return;                        // コマンド待に戻る
+//     }
 
-    send(mp3_proc_link, OK_RESP); // クライアントに成功を通知
-    int len;
-    while ((len = read(fd, mp3_data_buf, BUFSIZ)) > 0){                                      // データをファイルから読み
-        spiWriteMp3Dat(mp3_data_buf, len); // MP3デコーダにデータを送る
-        if (syncFlag)
-            break; // クライアントが待っている (停止要求など)
-    }
-    spiFlushMp3(); // デコーダLSIのバッファをクリアし
-    close(fd);     // ファイルをクローズ
-}
-
-//-----------------------------------------------------------------------------
-// 音楽データ転送用のメインルーチン (プロセスとして実行される想定)
-// (mp3Proc.cmm の mp3Main に相当)
-//-----------------------------------------------------------------------------
-public void StreamMngMain(){
-    mp3_proc_link = newLink(); // クライアント待受用のリンク
-    for (;;){
-        Link l = receive(mp3_proc_link); // クライアントから受信待ち
-        syncFlag = false;                // クライアント停止中にフラグ操作
-        if (l.op == STOP_CMD){
-            send(mp3_proc_link, OK_RESP); // クライアントを再開する
-        }
-        else if (l.op == START_CMD){
-            _trans_mp3_data(_ItoA(l.prm1)); // ファイルからデータ転送
-        }
-    }
-}
-
-//-----------------------------------------------------------------------------
-// クライアントプロセスが呼び出す関数
-// (mp3Proc.cmm の public stop/play 関数に相当)
-//-----------------------------------------------------------------------------
-
-// 音楽再生停止
-public void stop_c(){
-    syncFlag = true;                          // データ転送プロセスをコマンド待にする
-    sndrec(mp3_proc_link, STOP_CMD, 0, 0, 0); // 同期要求メッセージ
-    playstatus = 0;                           // 停止中に設定
-}
-
-// 音楽再生
-// 内部的な再生開始。StreamMng の public play から呼び出される。
-boolean _start_playback(char[] path){
-    syncFlag = true; // データ転送プロセスをコマンド待にする
-    int r = sndrec(mp3_proc_link, START_CMD,
-                   _AtoI(path), 0, 0); // 再生開始メッセージ
-    return r == OK_RESP;               // 成功なら true を返す
-}
-
-//-----------------------------------------------------------------------------
-// StreamMng クラス図に基づいたPublic関数
-//-----------------------------------------------------------------------------
-
-// 音楽再生 (外部から呼び出されるAPI)
-// public void play(song[] songs, int start_idx){
-public void play_c(song[] queue, int start_idx){
-    // queue = songs;
-    // song[] queue = songs; // 再生キューを設定
-    idx = start_idx;
-    if (queue != null && idx >= 0 && idx < length(queue)){
-        if (_start_playback(queue[idx].path)){                   // 内部の再生開始関数を 呼び出す
-            playstatus = 1; // 再生中に設定
-            // 履歴に追加 (簡易実装)
-            if (history_count < MAX_HISTORY_SIZE){
-                history_count = history_count + 1; // 履歴に追加
-                history[history_count] = queue[idx].path;
-            }
-            else{
-                // 履歴がいっぱいの場合、古いものを削除して新しいものを追加
-                for (int i = 0; i < MAX_HISTORY_SIZE - 1; i=i+1){
-                    history[i] = history[i + 1];
-                }
-                history[MAX_HISTORY_SIZE - 1] = queue[idx].path;
-            }
-        }
-        else{
-            playstatus = 0; // 再生失敗
-        }
-    }
-    else{
-        playstatus = 0; // 無効なプレイリクエスト
-    }
-}
-
-// ループ設定
-public void loop(boolean is_loop){
-    is_loop_enabled = is_loop;
-}
-
-// リピート設定 (現在の曲を繰り返す)
-public void repeat(boolean is_repeat){
-    is_repeat_enabled = is_repeat;
-}
-
-// シャッフル設定
-public void shuffle(boolean is_shuffle){
-    is_shuffle_enabled = is_shuffle;
-    // TODO: シャッフルが有効になった場合、キューの並び替えロジックをここに追加
-    // 現状は、再生中の曲の次に再生される曲の選択に影響を与えるものとする
-}
-
-// 次の曲へ
-// public void next(){
-public void next(song[] queue){
-    if (queue == null || length(queue) == 0)
-        return;
-
-    if (is_repeat_enabled){
-        // リピート有効の場合は何もしない (同じ曲が繰り返される想定)
-        return;
-    }
-
-    if (is_shuffle_enabled){
-        // シャッフル有効の場合、ランダムな次の曲を選択
-        // TODO: より洗練されたシャッフルアルゴリズム (再生済みを考慮するなど)
-
-        // ランダムなインデックスを生成
-        if (length(queue) == 1){
-            idx = 0; // キューが1曲だけならその曲を再生
-        }
-        else if (length(queue) > 1 && idx >= 0 && idx < length(queue)){
-            // ランダムなインデックスを生成。ただし、現在の曲と同じ曲は選ばないように
-            int new_idx;
-            do {
-                // 0~ length(queue) - 1 の範囲でランダムなインデックスを生成
-                new_idx = rand() % length(queue);
-            } while (new_idx == idx); // 現在の曲と同じなら再生成
-            idx = new_idx; // ランダムな曲に更新
-        }
-
-        // _Rand
-        // idx = _Rand() % length(queue);
-    }
-    else{
-        idx = idx + 1; // 次の曲へ進む
-        if (idx >= length(queue)){
-            if (is_loop_enabled){
-                idx = 0; // ループ有効なら最初に戻る
-            }
-            else{
-                stop_c(); // ループ無効なら停止
-                return;
-            }
-        }
-    }
-    // 新しい曲を再生
-    play_c(queue, idx); // play関数を再利用して新しい曲を再生
-}
-
-// 前の曲へ
-// public void previous(){
-public void previous(song[] queue){
-    // idx = queue.index; // 現在の曲のインデックスを取得
-    if (queue == null || length(queue) == 0)
-        return;
-
-    if (is_repeat_enabled){
-        // リピート有効の場合は何もしない
-        return;
-    }
-
-    idx = idx - 1; // 前の曲へ戻る
-    if (idx < 0){
-        if (is_loop_enabled){
-            idx = length(queue) - 1; // ループ有効なら最後に戻る
-        }
-        else{
-            stop_c(); // ループ無効なら停止
-            return;
-        }
-    }
-    // 新しい曲を再生
-    play_c(queue, idx); // play関数を再利用して新しい曲を再生
-}
-
-//-----------------------------------------------------------------------------
-// 状態の取得
-//-----------------------------------------------------------------------------
-
-// 再生履歴の取得 (ここでは簡易的に履歴のパスを表示するだけ)
-// 再生履歴は、再生された曲のパスを保持する配列を返したい。→再生履歴を表示して再生するときに使う。
-public void get_history(){
-    dbgPutStr("--- Play History ---\n");
-    for (int i = 0; i < history_count; i=i+1){
-        dbgPutStr(history[i]);
-        dbgPutStr("\n");
-    }
-    dbgPutStr("--------------------\n");
-}
-
-
-// 再生中の曲のタイプを取得 queueを元に、(song, album, playlist)のどれか。
-public char[] get_type(song[] queue){
-    if (queue != null && idx >= 0 && idx < length(queue)){
-        char[] path = queue[idx].path;
-        if (path != null){
-            int slash_pos = strRchr(path, '/');
-
-            if (slash_pos >= 8 &&
-                path[slash_pos - 8] == 'p' &&
-                path[slash_pos - 7] == 'l' &&
-                path[slash_pos - 6] == 'a' &&
-                path[slash_pos - 5] == 'y' &&
-                path[slash_pos - 4] == 'l' &&
-                path[slash_pos - 3] == 'i' &&
-                path[slash_pos - 2] == 's' &&
-                path[slash_pos - 1] == 't'){
-                return "playlist";
-            }
-
-            if (slash_pos >= 5 &&
-                path[slash_pos - 5] == 'a' &&
-                path[slash_pos - 4] == 'l' &&
-                path[slash_pos - 3] == 'b' &&
-                path[slash_pos - 2] == 'u' &&
-                path[slash_pos - 1] == 'm'){
-                return "album";
-            }
-
-            return "song";
-        }
-    }
-    return "unknown";
-}
-
-
-// 現在の再生キューを取得
-// public song[] get_queue(){
-//     return queue;
+//     send(mp3_proc_link, OK_RESP); // クライアントに成功を通知
+//     int len;
+//     while ((len = read(fd, mp3_data_buf, BUFSIZ)) > 0){                                      // データをファイルから読み
+//         spiWriteMp3Dat(mp3_data_buf, len); // MP3デコーダにデータを送る
+//         if (syncFlag)
+//             break; // クライアントが待っている (停止要求など)
+//     }
+//     spiFlushMp3(); // デコーダLSIのバッファをクリアし
+//     close(fd);     // ファイルをクローズ
 // }
 
-// 現在再生中の曲を取得
-public song get_song(song[] queue){
-    // idx = queue.idx; // 現在の曲のインデックスを取得
-    if (queue != null && idx >= 0 && idx < length(queue)){
-        return queue[idx];
-    }
-    return null; // または適切なエラー処理
-}
+// //-----------------------------------------------------------------------------
+// // 音楽データ転送用のメインルーチン (プロセスとして実行される想定)
+// // (mp3Proc.cmm の mp3Main に相当)
+// //-----------------------------------------------------------------------------
+// public void StreamMngMain(){
+//     mp3_proc_link = newLink(); // クライアント待受用のリンク
+//     for (;;){
+//         Link l = receive(mp3_proc_link); // クライアントから受信待ち
+//         syncFlag = false;                // クライアント停止中にフラグ操作
+//         if (l.op == STOP_CMD){
+//             send(mp3_proc_link, OK_RESP); // クライアントを再開する
+//         }
+//         else if (l.op == START_CMD){
+//             _trans_mp3_data(_ItoA(l.prm1)); // ファイルからデータ転送
+//         }
+//     }
+// }
 
-// 現在再生中の曲の経過時間を取得 (ここでは未実装)
-public int get_now_time(){
-    // TODO: MP3デコーダなどから実際の経過時間を取得するロジックを実装
-    // MP3デコーダLSIから直接取得する
-    return 0; // 仮の値
-}
+// //-----------------------------------------------------------------------------
+// // クライアントプロセスが呼び出す関数
+// // (mp3Proc.cmm の public stop/play 関数に相当)
+// //-----------------------------------------------------------------------------
 
-// 現在再生中の曲の長さを取得 (ここでは未実装)
-public int get_song_length(){
-    // TODO: MP3デコーダなどから実際の曲の長さを取得するロジックを実装
-    // MP3デコーダLSIやMP3ファイルのヘッダから取得する
-    return 0; // 仮の値
-}
+// // 音楽再生停止
+// public void stop_c(){
+//     syncFlag = true;                          // データ転送プロセスをコマンド待にする
+//     sndrec(mp3_proc_link, STOP_CMD, 0, 0, 0); // 同期要求メッセージ
+//     playstatus = 0;                           // 停止中に設定
+// }
+
+// // 音楽再生
+// // 内部的な再生開始。StreamMng の public play から呼び出される。
+// boolean _start_playback(char[] path){
+//     syncFlag = true; // データ転送プロセスをコマンド待にする
+//     int r = sndrec(mp3_proc_link, START_CMD,
+//                    _AtoI(path), 0, 0); // 再生開始メッセージ
+//     return r == OK_RESP;               // 成功なら true を返す
+// }
+
+// //-----------------------------------------------------------------------------
+// // StreamMng クラス図に基づいたPublic関数
+// //-----------------------------------------------------------------------------
+
+// // 音楽再生 (外部から呼び出されるAPI)
+// // public void play(song[] songs, int start_idx){
+// public void play_c(song[] queue, int start_idx){
+//     // queue = songs;
+//     // song[] queue = songs; // 再生キューを設定
+//     idx = start_idx;
+//     if (queue != null && idx >= 0 && idx < length(queue)){
+//         if (_start_playback(queue[idx].path)){                   // 内部の再生開始関数を 呼び出す
+//             playstatus = 1; // 再生中に設定
+//             // 履歴に追加 (簡易実装)
+//             if (history_count < MAX_HISTORY_SIZE){
+//                 history_count = history_count + 1; // 履歴に追加
+//                 history[history_count] = queue[idx].path;
+//             }
+//             else{
+//                 // 履歴がいっぱいの場合、古いものを削除して新しいものを追加
+//                 for (int i = 0; i < MAX_HISTORY_SIZE - 1; i=i+1){
+//                     history[i] = history[i + 1];
+//                 }
+//                 history[MAX_HISTORY_SIZE - 1] = queue[idx].path;
+//             }
+//         }
+//         else{
+//             playstatus = 0; // 再生失敗
+//         }
+//     }
+//     else{
+//         playstatus = 0; // 無効なプレイリクエスト
+//     }
+// }
+
+// // ループ設定
+// public void loop(boolean is_loop){
+//     is_loop_enabled = is_loop;
+// }
+
+// // リピート設定 (現在の曲を繰り返す)
+// public void repeat(boolean is_repeat){
+//     is_repeat_enabled = is_repeat;
+// }
+
+// // シャッフル設定
+// public void shuffle(boolean is_shuffle){
+//     is_shuffle_enabled = is_shuffle;
+//     // TODO: シャッフルが有効になった場合、キューの並び替えロジックをここに追加
+//     // 現状は、再生中の曲の次に再生される曲の選択に影響を与えるものとする
+// }
+
+// // 次の曲へ
+// // public void next(){
+// public void next(song[] queue){
+//     if (queue == null || length(queue) == 0)
+//         return;
+
+//     if (is_repeat_enabled){
+//         // リピート有効の場合は何もしない (同じ曲が繰り返される想定)
+//         return;
+//     }
+
+//     if (is_shuffle_enabled){
+//         // シャッフル有効の場合、ランダムな次の曲を選択
+//         // TODO: より洗練されたシャッフルアルゴリズム (再生済みを考慮するなど)
+
+//         // ランダムなインデックスを生成
+//         if (length(queue) == 1){
+//             idx = 0; // キューが1曲だけならその曲を再生
+//         }
+//         else if (length(queue) > 1 && idx >= 0 && idx < length(queue)){
+//             // ランダムなインデックスを生成。ただし、現在の曲と同じ曲は選ばないように
+//             int new_idx;
+//             do {
+//                 // 0~ length(queue) - 1 の範囲でランダムなインデックスを生成
+//                 new_idx = rand() % length(queue);
+//             } while (new_idx == idx); // 現在の曲と同じなら再生成
+//             idx = new_idx; // ランダムな曲に更新
+//         }
+
+//         // _Rand
+//         // idx = _Rand() % length(queue);
+//     }
+//     else{
+//         idx = idx + 1; // 次の曲へ進む
+//         if (idx >= length(queue)){
+//             if (is_loop_enabled){
+//                 idx = 0; // ループ有効なら最初に戻る
+//             }
+//             else{
+//                 stop_c(); // ループ無効なら停止
+//                 return;
+//             }
+//         }
+//     }
+//     // 新しい曲を再生
+//     play_c(queue, idx); // play関数を再利用して新しい曲を再生
+// }
+
+// // 前の曲へ
+// // public void previous(){
+// public void previous(song[] queue){
+//     // idx = queue.index; // 現在の曲のインデックスを取得
+//     if (queue == null || length(queue) == 0)
+//         return;
+
+//     if (is_repeat_enabled){
+//         // リピート有効の場合は何もしない
+//         return;
+//     }
+
+//     idx = idx - 1; // 前の曲へ戻る
+//     if (idx < 0){
+//         if (is_loop_enabled){
+//             idx = length(queue) - 1; // ループ有効なら最後に戻る
+//         }
+//         else{
+//             stop_c(); // ループ無効なら停止
+//             return;
+//         }
+//     }
+//     // 新しい曲を再生
+//     play_c(queue, idx); // play関数を再利用して新しい曲を再生
+// }
+
+// //-----------------------------------------------------------------------------
+// // 状態の取得
+// //-----------------------------------------------------------------------------
+
+// // 再生履歴の取得 (ここでは簡易的に履歴のパスを表示するだけ)
+// // 再生履歴は、再生された曲のパスを保持する配列を返したい。→再生履歴を表示して再生するときに使う。
+// public void get_history(){
+//     dbgPutStr("--- Play History ---\n");
+//     for (int i = 0; i < history_count; i=i+1){
+//         dbgPutStr(history[i]);
+//         dbgPutStr("\n");
+//     }
+//     dbgPutStr("--------------------\n");
+// }
+
+
+// // 再生中の曲のタイプを取得 queueを元に、(song, album, playlist)のどれか。
+// public char[] get_type(song[] queue){
+//     if (queue != null && idx >= 0 && idx < length(queue)){
+//         char[] path = queue[idx].path;
+//         if (path != null){
+//             int slash_pos = strRchr(path, '/');
+
+//             if (slash_pos >= 8 &&
+//                 path[slash_pos - 8] == 'p' &&
+//                 path[slash_pos - 7] == 'l' &&
+//                 path[slash_pos - 6] == 'a' &&
+//                 path[slash_pos - 5] == 'y' &&
+//                 path[slash_pos - 4] == 'l' &&
+//                 path[slash_pos - 3] == 'i' &&
+//                 path[slash_pos - 2] == 's' &&
+//                 path[slash_pos - 1] == 't'){
+//                 return "playlist";
+//             }
+
+//             if (slash_pos >= 5 &&
+//                 path[slash_pos - 5] == 'a' &&
+//                 path[slash_pos - 4] == 'l' &&
+//                 path[slash_pos - 3] == 'b' &&
+//                 path[slash_pos - 2] == 'u' &&
+//                 path[slash_pos - 1] == 'm'){
+//                 return "album";
+//             }
+
+//             return "song";
+//         }
+//     }
+//     return "unknown";
+// }
+
+
+// // 現在の再生キューを取得
+// // public song[] get_queue(){
+// //     return queue;
+// // }
+
+// // 現在再生中の曲を取得
+// public song get_song(song[] queue){
+//     // idx = queue.idx; // 現在の曲のインデックスを取得
+//     if (queue != null && idx >= 0 && idx < length(queue)){
+//         return queue[idx];
+//     }
+//     return null; // または適切なエラー処理
+// }
+
+// // 現在再生中の曲の経過時間を取得 (ここでは未実装)
+// public int get_now_time(){
+//     // TODO: MP3デコーダなどから実際の経過時間を取得するロジックを実装
+//     // MP3デコーダLSIから直接取得する
+//     return 0; // 仮の値
+// }
+
+// // 現在再生中の曲の長さを取得 (ここでは未実装)
+// public int get_song_length(){
+//     // TODO: MP3デコーダなどから実際の曲の長さを取得するロジックを実装
+//     // MP3デコーダLSIやMP3ファイルのヘッダから取得する
+//     return 0; // 仮の値
+// }
