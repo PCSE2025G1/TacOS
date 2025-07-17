@@ -1,2 +1,328 @@
+/*
+ * 画面描画を担当するコンポーネント
+ *
+ * 画面描画を担当する。基本的にたコンポーネントから見た時に直感的な使い方ができるように設計がしてある
+*/
+
+#include <appUtil.hmm>
+#include <util.hmm>
+
 #include "settingsMng.hmm"
 #include "spi.hmm"
+#include "structures.hmm"
+#include "font.hmm"
+
+
+//
+// 変数
+//
+// --- ページ ---
+// 遷移はselect, backによって行う
+int now_page = 0; // 現在のページ深度：w
+int[] page_top = {0, 0, 0}; // 現在ページのトップはinternal_objsのどこを指すのか
+// --- ディスプレイ ---
+int display_size = 6;
+int[] cursor = {0, 0, 0}; // 範囲は0~5
+char[] Title = "          ";
+char CURSOR = '>';
+
+// 構造体型確認用
+void[] tmp;
+typeSt tmptype;
+modeSt tmpmode;
+song tmpsong;
+album tmpalbum;
+playlist tmpplaylist;
+
+
+// --- ディスプレイの内部 ---
+// 最大3ページのため、保持しておく
+// 曲数を表示する数が最大50のため、50個用意しておく, 最後のnullは末尾チェック
+void[][][] screen = {
+    {
+        null,null,null,null,null,null,null,null,null,null,
+        null,null,null,null,null,null,null,null,null,null,
+        null,null,null,null,null,null,null,null,null,null,
+        null,null,null,null,null,null,null,null,null,null,
+        null,null,null,null,null,null,null,null,null,null, null
+    },
+    {
+        null,null,null,null,null,null,null,null,null,null,
+        null,null,null,null,null,null,null,null,null,null,
+        null,null,null,null,null,null,null,null,null,null,
+        null,null,null,null,null,null,null,null,null,null,
+        null,null,null,null,null,null,null,null,null,null, null
+    },
+    {
+        null,null,null,null,null,null,null,null,null,null,
+        null,null,null,null,null,null,null,null,null,null,
+        null,null,null,null,null,null,null,null,null,null,
+        null,null,null,null,null,null,null,null,null,null,
+        null,null,null,null,null,null,null,null,null,null, null
+    }
+};
+
+
+// --- 関数の戻り値 ---
+SelectedItem item = {"aiueo", null};
+
+//
+// 先生が元々作っていた関数
+//
+char[] locateCom = { '\xb0',   // page address
+                     '\x10',   // column address Hi = 0x00
+                     '\x00',   // column address Lo = 0x00
+                     '\xff' }; // EOF
+// --- ディスプレイの情報を取得する操作 ---
+// カーソルの位置をx,yに変更する
+public void _locateXY(int x, int y) {
+  int x8 = x * 8;
+  locateCom[0] = chr(0xb0 | y);             // page address
+  locateCom[1] = chr(0x10 | (x8>>4));       // column address Hi
+  locateCom[2] = chr(0x00 + (x8 & 0x0f));   // column address Lo
+  spiWriteLcdCom(locateCom);
+}
+
+// カーソル位置に１文字表示
+public void _putCh(char c) {
+  spiWriteLcdDat(font(c), 8);
+}
+
+// カーソル位置に文字列表示
+public void _putStr(char[] str) {
+  for (int i=0; str[i]!='\0'; i=i+1) {
+    _putCh(str[i]);
+  }
+}
+
+// カーソル位置に桁数を指定して右詰めで10進数を表示
+char[] decBuf = array(6);                   // 16bit int なら最大5桁
+public void _putDec(int val, int width) {
+  int v = val;
+  int w = 1;
+  if (v==0) {
+    decBuf[0]='0';
+  } else {
+    for (w=0; v!=0; w=w+1) {
+      decBuf[w]=chr((v % 10) + ord('0'));
+      v = v / 10;
+    }
+  }
+  for (int i=w; i<width; i=i+1) {           // 空白で桁数を合わせる
+    _putCh(' ');
+  }
+  for (w=w-1; w>=0; w=w-1) {
+    _putCh(decBuf[w]);
+  }
+}
+
+public void _show_psbar() {}
+
+//
+// 自作関数
+//
+// --- 現在カーソルが選択中の要素を返す ---
+public SelectedItem select() {
+    item.item = screen[now_page][page_top[now_page]+cursor[now_page]];
+    return item;
+}
+
+// --- 現在のページをクリアする
+public void clear() {
+  // 実際の画面をクリア
+  for (int i=0; i<8; i=i+1) {
+    _locateXY(0, i);
+    for (int j=0; j<16; j=j+1) {
+      _putCh(' ');
+    }
+  }
+}
+
+// オブジェクト配列のリセット(null化)
+void init_screen(int page) {
+    // 完全リセット
+    if (page == -1) {
+        for (int i=0; i<3; i=i+1) {
+            for (int j=0; j<50; j=j+1) {
+                screen[i][j] = null;
+            }
+        }
+    }
+    // 指定したページをリセット
+    else {
+        for (int i=0; i<50; i=i+1) {
+            screen[page][i] = null;
+        }
+    }
+}
+
+// カーソルのリセット
+// 1ページごとのリセットは手動で行ってください！
+void init_cursor() {
+    for (int i=0; i<3; i=i+1) {
+        cursor[i] = 0;
+    }
+}
+
+// ページトップのリセット
+// 1ページごとのリセットは手動で行ってください！
+void init_page_top() {
+    for (int i=0; i<3; i=i+1) {
+        page_top[i] = 0;
+    }
+}
+
+// 入力アイテムをオブジェクト配列に入れる
+void items_to_objs(void[][] items) {
+    for (int i=0; i<50; i=i+1) {
+        // 入力アイテムは必ずEOとしてnullを末尾に挿入
+        if (items[i] == null) {
+            return ;
+        }
+        screen[now_page][i] = items[i];
+    }
+}
+
+// タイトルの描画を行う
+void draw_title() {
+    // タイトル描画
+    _locateXY(0, 0); _putStr(Title);
+}
+
+// screen配列に入っているものを描画する
+void display_screen() {
+    // クリア
+    clear();
+
+    // タイトル描画
+    draw_title();
+
+    // 現在のページの1番上にオブジェクトを配置する
+    // itemsの数を超えないように、6つループする
+    for (int i=0; i<display_size; i=i+1) {
+        if (screen[now_page][i + page_top[now_page]] == null) {
+            break;
+        }
+        
+        // 型判定ができるようにする
+        tmptype = screen[now_page][i + page_top[now_page]];
+
+        // 描画する
+        if (strCmp(tmptype.type, "mode") == 0) {
+            tmp = tmptype;
+            tmpmode = tmp;
+            _locateXY(1, i + 2); _putStr(tmpmode.name);
+        } else if(strCmp(tmptype.type, "song") == 0) {
+            tmp = tmptype;
+            tmpsong = tmp;
+            _locateXY(1, i + 2); _putStr(tmpsong.name);
+        } else if(strCmp(tmptype.type, "album") == 0) {
+            tmp = tmptype;
+            tmpalbum = tmp;
+            _locateXY(1, i + 2); _putStr(tmpalbum.name);
+        } else if(strCmp(tmptype.type, "playlist") == 0) {
+            tmp= tmptype;
+            tmpplaylist = tmp;
+            _locateXY(1, i + 2); _putStr(tmpplaylist.name);
+        }
+    }
+}
+
+// 与えたアイテムを画面に並べる, またその初期化
+public void display_items(void[][] items, char[] title, char[] move) {
+    // モード遷移の場合 (状態完全リセット)
+    if (strCmp(move,"mode") == 0) {
+        init_screen(-1);
+        clear();
+        init_cursor();
+        now_page = 0;
+        items_to_objs(items);
+    }
+    // sortなどのそのままの場合
+    else if (strCmp(move,"stay") == 0) {
+        init_screen(now_page);
+        clear();
+        cursor[now_page] = 0;
+        items_to_objs(items);
+    }
+    // ページが進む処理の場合
+    else if (strCmp(move,"straight") == 0) {
+        if (now_page == 2) {
+            return ;
+        } else {
+            now_page = now_page + 1;
+            init_screen(now_page);
+            clear();
+            cursor[now_page] = 0;
+            items_to_objs(items);
+        }
+    }
+
+    // 共通処理
+    Title = title;
+    display_screen();
+
+    _locateXY(0, cursor[now_page] + 2); _putCh(CURSOR);
+}
+
+
+
+// こんなかでページの遷移とかはやる
+// 一旦画面をクリアする, now_pageを更新する, now_pageに従ってとcursorを更新する
+public void back() {
+    if (now_page != 0) {
+        init_screen(now_page);
+        cursor[now_page] = 0;
+        page_top[now_page] = 0;
+        now_page = now_page - 1;
+        clear();
+        display_screen();
+        _locateXY(0, cursor[now_page] + 2); _putCh(CURSOR);
+    }
+}
+
+
+// --- カーソル上移動入力 ---
+public void up_cursor() {
+    // 上にスクロール
+    if (cursor[now_page] == 0 && page_top[now_page] != 0) {
+        page_top[now_page] = page_top[now_page]- 1;
+        // ここでscreenの再描画
+        display_screen();
+        _locateXY(0, cursor[now_page] + 2); _putCh(CURSOR);
+    } 
+    // 上にカーソル移動
+    else if (cursor[now_page] != 0) {
+        cursor[now_page] = cursor[now_page] - 1;
+
+        display_screen();
+        // カーソルを再描画
+        _locateXY(0, cursor[now_page] + 2); _putCh(CURSOR);
+    }
+}
+
+
+// --- カーソル下移動入力 ---
+public void down_cursor() {
+    // 下にスクロール
+    if (cursor[now_page] == 5 && screen[now_page][page_top[now_page] + 6] != null) {
+        page_top[now_page] = page_top[now_page] + 1;
+        // スクリーンの再描画
+        display_screen();
+        // カーソルの再描画
+        _locateXY(0, cursor[now_page] + 2); _putCh(CURSOR);
+    }
+     
+    // 下にカーソルを移動
+    else if(cursor[now_page] != 5 && screen[now_page][page_top[now_page] + cursor[now_page] + 1] != null) {
+        cursor[now_page] = cursor[now_page] + 1;
+
+        // スクリーンの再描画
+        display_screen();
+        // カーソルを再描画
+        _locateXY(0, cursor[now_page] + 2); _putCh(CURSOR);
+    }
+}
+
+
+
