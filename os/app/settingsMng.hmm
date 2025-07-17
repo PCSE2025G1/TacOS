@@ -12,7 +12,7 @@
 //-----------------------------------------------------------------------------
 public int volume;
 public void set_volume_level(int level);
+public void power_off();
 
 // public void up_volume();
 // public void down_volume();
-public void power_off();
