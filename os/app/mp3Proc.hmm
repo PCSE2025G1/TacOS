@@ -62,6 +62,11 @@ public int playstatus;
 public int currentPlayMode;
 public int idx;
 public boolean wasStoppedByUser;
+public boolean isPaused; // 一時停止状態かどうか
+
+
+public void mp3pause();
+public void mp3resume();
 
 // public int totalSongs;
 // public boolean is_loop;

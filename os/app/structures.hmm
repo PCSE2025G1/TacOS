@@ -4,6 +4,18 @@
 #ifndef STRUCTURES_H
 #define STRUCTURES_H
 
+
+struct typeSt {
+    char[] type;
+};
+
+struct modeSt {
+    char[] type;
+    int id;
+    char[] name;
+};
+
+
 struct album {
     int song_num;
     char[] name;

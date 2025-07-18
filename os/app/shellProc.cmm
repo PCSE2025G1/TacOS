@@ -182,11 +182,24 @@ void homeScreen() {
   putStr(" Screen3");
   
   // 操作説明
-  locateXY(0, 6);
-  putStr("2/4:Select 6:Enter");
+  // locateXY(0, 6);
+  // putStr("2/4:Select 6:Enter");
   
   // 初期カーソル位置を設定
   updateCursor(2, 3, homeSelection); // 2行目から開始、3つの選択肢、現在の選択
+
+  // 新しいビットマップの表示
+  locateXY(0, 6);
+  putCh(chr(0x7f));  // 再生 ▶
+  locateXY(1, 6);
+  putCh(chr(0x80));  // 一時停止 ⏸
+  locateXY(2, 6);
+  putCh(chr(0x81));  // シャッフル 🔀
+  locateXY(3, 6);
+  putCh(chr(0x82));  // ループ 🔁
+  locateXY(4, 6);
+  putCh(chr(0x83));  // ループ 🔁
+
 }
 
 //-----------------------------------------------------------------------------
@@ -260,12 +273,20 @@ void act_stream(I_StrmSt strm_in) {
     // 再生/停止切り替え（5番ボタン）
     if (num == 5) {
         if (playstatus == 1) {
-            stop(true); // 再生停止
-        } else {
-            play(mp3FilesGetPath(idx+1)); // 再生開始
-        }
+          isPaused = !isPaused; // 一時停止状態を切り替え
+            // if (isPaused) {
+            //     mp3pause();
+            // } else {
+            //     mp3resume();
+            // }
+            
+        //     stop(true); // 再生停止
+        // } else {
+        //     play(mp3FilesGetPath(idx+1)); // 再生開始
+        // }
         screen2();
         return;
+        }
     }
 
   // リピートモードでは次/前の曲移動のみ無効化（再生制御は有効）

@@ -48,6 +48,12 @@
 // メッセージ
 #define STOP  1                             // 再生停止要求メッセージ
 #define START 2                             // 再生開始要求メッセージ
+#define PAUSE  3                             // 一時停止要求
+#define RESUME 4                             // 再開要求
+
+int estimatedTotalSeconds;
+int playbackSeconds = 0;  // 再生時間（秒単位）
+public boolean isPaused = false;  // 一時停止フラグ
 
 // レスポンス
 #define OK  0
@@ -57,7 +63,219 @@
 int link;                                   // メッセージ通信用のリンク
 boolean syncFlag = false;                   // クライアントが同期待ちである
 
+//-----------------------------------------------------------------------------
+// クライアントプロセスが呼び出す
+//-----------------------------------------------------------------------------
+// public boolean Upscreen = false;
+// public boolean wasStoppedByUser = false;
 
+// void updatePlaybackTime() {
+//   // SCI_DECODE_TIME は 0x04
+//   playbackSeconds = spiReadMp3Reg(0x04);
+// }
+
+// // void debugPlaybackTime() {
+// //   updatePlaybackTime();
+// //   printF("再生時間: %d / %d 秒\n", playbackSeconds, estimatedTotalSeconds);
+// // }
+
+// void debugPlaybackTime() {
+//   updatePlaybackTime();  // 現在の秒数を取得
+
+//   int total = estimatedTotalSeconds;
+//   int current = playbackSeconds;
+
+//   int steps = 10;
+//   int filled;
+//   if (total > 0) {
+//     filled = (current * steps) / total;
+//   } else {
+//     filled = 0;
+//   }
+
+//   char[] bar = malloc(12);
+//   for (int i = 0; i < steps; i = i + 1) {
+//     if (i < filled) {
+//       bar[i] = '#';
+//     } else {
+//       bar[i] = '-';
+//     }
+//   }
+//   bar[10] = '\0';
+
+//   printF("----------------------------\n");
+//   printF("再生時間: %d / %d 秒\n", current, total);
+//   printF("進行度  : [%s] %d/10\n", bar, filled);
+//   printF("----------------------------\n");
+
+//   free(bar);
+// }
+
+
+// // 音楽再生停止
+// public void stop(boolean user) {
+//   syncFlag = true;                          // データ転送プロセスをコマンド待にする
+//   debugPlaybackTime();  // 再生時間の確認
+//   sndrec(link, STOP, 0, 0, 0);              // 同期要求メッセージ
+
+//   // ---以下ついかした記述-----
+//   wasStoppedByUser = user;  // ユーザーによる停止
+//   playstatus = 0;
+//   // Upscreen = true;
+//   // -----------------------
+// }
+
+// // 音楽再生
+// public boolean play(char[] path) {
+
+//   syncFlag = true;                          // データ転送プロセスをコマンド待にする
+//   isPaused = false;
+//   int r = sndrec(link, START,
+//                   _AtoI(path), 0, 0);       // 再生開始メッセージ
+
+//    // ---以下ついかした記述-----
+//   wasStoppedByUser = false;  // ユーザーによる停止
+//   playstatus = 1;
+//   // Upscreen = true;
+//   // screen2();
+//   // -----------------------
+
+//   return r==OK;                             // 成功なら true を返す
+// }
+
+// //-----------------------------------------------------------------------------
+// // 音楽データ転送用のプロセス
+// //-----------------------------------------------------------------------------
+// // MP3 データ用のバッファ
+// char[] buf = array(BUFSIZ);
+
+// // 音楽データをデコーダに送る
+// // void trans(char[] path) {
+// //   int fd = open(path, READ_MODE);           // ファイルをオープン
+// //   if (fd<0) {                               // オープンできない
+// //     send(link, ERR);                        //   クライアントにエラーを通知
+// //     return;                                 //   コマンド待に戻る
+// //   }
+// //   send(link, OK);                           // クライアントに成功を通知
+// //   int len;
+// //   while ((len=read(fd, buf, BUFSIZ))>0) {   // データをファイルから読み
+// //     spiWriteMp3Dat(buf, len);               //   MP3デコーダにデータを送る
+// //     if (syncFlag) break;                    //   クライアントが待っている
+// //   }
+// //   spiFlushMp3();                            // デコーダLSIのバッファをクリアし
+// //   close(fd);                                // ファイルをクローズ
+
+// //   // ★ 再生終了を通知（新しく追加）
+// //   // send(link, -1);
+// //   playstatus = -1;                     // 再生終了状態を設定
+
+// // }
+
+
+
+
+// void calculateEstimatedDuration(char[] path) {
+//   Stat s;
+//   if (stat(path, s) < 0) {
+//     estimatedTotalSeconds = 0;
+//     return;
+//   }
+
+//   int h = s.lenH;  // 上位
+//   int l = s.lenL;  // 下位
+
+//   // 32bit値 → キロバイトへ（右シフト10 = ÷1024）
+//   // 例: fileSizeKB = ((h << 16) | l) / 1024 を近似
+//   int kb = h * 64 + (l >> 10);  // = (h * 65536 + l) / 1024 の近似（オーバーフロー対策）
+
+//   int audata = spiReadMp3Reg(0x05);  // SCI_AUDATA
+//   int sampleRate = (audata >> 1) & 0x7FFF;
+//   if (sampleRate == 0) sampleRate = 44100;
+
+//   // ビットレート 128kbps → 16KB/s
+//   int estimatedBitrateKBps = 16;
+
+//   estimatedTotalSeconds = kb / estimatedBitrateKBps;
+// }
+
+
+
+
+// public void mp3pause() {
+//   int r = sndrec(link, PAUSE, 0, 0, 0);
+//   if (r != OK) {
+//     dbgPutStr("Pause IPC failed\n");
+//   }
+// }
+// public void mp3resume() {
+//   int r = sndrec(link, RESUME, 0, 0, 0);
+//   if (r != OK) {
+//     dbgPutStr("Resume IPC failed\n");
+//   }
+// }
+
+
+// void trans(char[] path) {
+//   int fd = open(path, READ_MODE);
+//   if (fd < 0) {
+//     send(link, ERR);
+//     return;
+//   }
+//   send(link, OK);
+
+//   calculateEstimatedDuration(path);  // 再生前に再生時間見積もり
+
+//   int len;
+ 
+//   while ((len = read(fd, buf, BUFSIZ)) > 0) {
+//     // 🔻 停止された場合は抜ける
+//     if (syncFlag) break;
+
+//     // 🔻 一時停止処理
+//     while (isPaused) {
+//       if (syncFlag) break;  // pause中でもstopされたら抜ける
+//       dbgPutStr("Paused...\n");
+//       sleep(100);
+//     }
+
+//     if (syncFlag) break;
+
+//     spiWriteMp3Dat(buf, len);
+//     updatePlaybackTime();
+//   }
+
+//   spiFlushMp3();
+//   close(fd);
+
+//   playstatus = -1;
+// }
+
+// // mp3Main は，プロセスのメインルーチンとしてカーネルに登録しておく．
+// // ここからプロセスの実行が始まる
+// public void mp3Main() {
+//   link = newLink();                         // クライアント待受用のリンク
+//   for (;;) {
+//     Link l=receive(link);                   // クライアントから受信待ち
+//     syncFlag = false;                       // クライアント停止中にフラグ操作
+//     if (l.op==STOP) {
+//       send(link, OK);                       // クライアントを再開する
+//     } else if (l.op==START) {
+//       trans(_ItoA(l.prm1));                 // ファイルからデータ転送
+//     } else if (l.op==PAUSE) {         // 🔴 一時停止処理
+//       isPaused = true;
+//       dbgPutStr("MP3: Received PAUSE command\n");
+//       send(link, OK);
+//     } else if (l.op==RESUME) {        // 🔴 再開処理
+//       isPaused = false;
+//       send(link, OK);
+//     }
+//   }
+// }
+
+
+// 再生状態管理
+int currentFd = -1;                         // 現在のファイルディスクリプタ
+char[] currentPath = null;                  // 現在再生中のファイルパス
 
 //-----------------------------------------------------------------------------
 // クライアントプロセスが呼び出す
@@ -65,34 +283,74 @@ boolean syncFlag = false;                   // クライアントが同期待ち
 public boolean Upscreen = false;
 public boolean wasStoppedByUser = false;
 
+void updatePlaybackTime() {
+  // SCI_DECODE_TIME は 0x04
+  playbackSeconds = spiReadMp3Reg(0x04);
+}
+
+void debugPlaybackTime() {
+  updatePlaybackTime();  // 現在の秒数を取得
+  int total = estimatedTotalSeconds;
+  int current = playbackSeconds;
+  int steps = 10;
+  int filled;
+  if (total > 0) {
+    filled = (current * steps) / total;
+  } else {
+    filled = 0;
+  }
+  char[] bar = malloc(12);
+  for (int i = 0; i < steps; i = i + 1) {
+    if (i < filled) {
+      bar[i] = '#';
+    } else {
+      bar[i] = '-';
+    }
+  }
+  bar[10] = '\0';
+  printF("----------------------------\n");
+  printF("再生時間: %d / %d 秒\n", current, total);
+  printF("進行度  : [%s] %d/10\n", bar, filled);
+  printF("----------------------------\n");
+  free(bar);
+}
+
+
 
 // 音楽再生停止
 public void stop(boolean user) {
   syncFlag = true;                          // データ転送プロセスをコマンド待にする
-  sndrec(link, STOP, 0, 0, 0);              // 同期要求メッセージ
-
-  // ---以下ついかした記述-----
-  wasStoppedByUser = user;  // ユーザーによる停止
+  debugPlaybackTime();                     // 再生時間の確認
+  sndrec(link, STOP, 0, 0, 0);             // 同期要求メッセージ
+  wasStoppedByUser = user;                 // ユーザーによる停止
   playstatus = 0;
-  // Upscreen = true;
-  // -----------------------
 }
 
 // 音楽再生
 public boolean play(char[] path) {
-
   syncFlag = true;                          // データ転送プロセスをコマンド待にする
+  // isPaused = false;
   int r = sndrec(link, START,
                   _AtoI(path), 0, 0);       // 再生開始メッセージ
-
-   // ---以下ついかした記述-----
-  wasStoppedByUser = false;  // ユーザーによる停止
+  wasStoppedByUser = false;                 // ユーザーによる停止
   playstatus = 1;
-  // Upscreen = true;
-  // screen2();
-  // -----------------------
-
   return r==OK;                             // 成功なら true を返す
+}
+
+// 一時停止
+public void mp3pause() {
+  int r = sndrec(link, PAUSE, 0, 0, 0);
+  if (r != OK) {
+    dbgPutStr("Pause IPC failed\n");
+  }
+}
+
+// 再開
+public void mp3resume() {
+  int r = sndrec(link, RESUME, 0, 0, 0);
+  if (r != OK) {
+    dbgPutStr("Resume IPC failed\n");
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -101,26 +359,74 @@ public boolean play(char[] path) {
 // MP3 データ用のバッファ
 char[] buf = array(BUFSIZ);
 
+void calculateEstimatedDuration(char[] path) {
+  Stat s;
+  if (stat(path, s) < 0) {
+    estimatedTotalSeconds = 0;
+    return;
+  }
+  int h = s.lenH;  // 上位
+  int l = s.lenL;  // 下位
+  int kb = h * 64 + (l >> 10);
+  int audata = spiReadMp3Reg(0x05);
+  int sampleRate = (audata >> 1) & 0x7FFF;
+  if (sampleRate == 0) sampleRate = 44100;
+  int estimatedBitrateKBps = 16;
+  estimatedTotalSeconds = kb / estimatedBitrateKBps;
+}
+
 // 音楽データをデコーダに送る
 void trans(char[] path) {
-  int fd = open(path, READ_MODE);           // ファイルをオープン
-  if (fd<0) {                               // オープンできない
-    send(link, ERR);                        //   クライアントにエラーを通知
-    return;                                 //   コマンド待に戻る
+  int fd = open(path, READ_MODE);
+  if (fd < 0) {
+    send(link, ERR);
+    return;
   }
-  send(link, OK);                           // クライアントに成功を通知
+  send(link, OK);
+
+  calculateEstimatedDuration(path);  // 再生前に再生時間見積もり
+
   int len;
-  while ((len=read(fd, buf, BUFSIZ))>0) {   // データをファイルから読み
-    spiWriteMp3Dat(buf, len);               //   MP3デコーダにデータを送る
-    if (syncFlag) break;                    //   クライアントが待っている
+  while (true) {
+    if (syncFlag) break;
+
+    // 🔁 pause中は read すらしない
+    while (isPaused) {
+      if (syncFlag) break;
+      dbgPutStr("Paused...\n");
+      sleep(100);
+    }
+
+    if (syncFlag) break;
+
+    len = read(fd, buf, BUFSIZ);
+    if (len <= 0) break;
+
+    if (syncFlag) break;
+
+    spiWriteMp3Dat(buf, len);
+    updatePlaybackTime();
   }
-  spiFlushMp3();                            // デコーダLSIのバッファをクリアし
-  close(fd);                                // ファイルをクローズ
+  // while ((len = read(fd, buf, BUFSIZ)) > 0) {
+  //   // 停止された場合は抜ける
+  //   if (syncFlag) break;
 
-  // ★ 再生終了を通知（新しく追加）
-  // send(link, -1);
-  playstatus = -1;                     // 再生終了状態を設定
+  //   // 一時停止処理
+  //   while (isPaused) {
+  //     if (syncFlag) break;  // pause中でもstopされたら抜ける
+  //     dbgPutStr("Paused...\n");
+  //     sleep(100);
+  //   }
 
+  //   if (syncFlag) break;
+
+  //   spiWriteMp3Dat(buf, len);
+  //   updatePlaybackTime();
+  // }
+
+  spiFlushMp3();
+  close(fd);
+  playstatus = -1;
 }
 
 // mp3Main は，プロセスのメインルーチンとしてカーネルに登録しておく．
@@ -128,18 +434,26 @@ void trans(char[] path) {
 public void mp3Main() {
   link = newLink();                         // クライアント待受用のリンク
   for (;;) {
-    Link l=receive(link);                   // クライアントから受信待ち
+    Link l = receive(link);                 // クライアントから受信待ち
     syncFlag = false;                       // クライアント停止中にフラグ操作
-    if (l.op==STOP) {
+    if (l.op == STOP) {
       send(link, OK);                       // クライアントを再開する
-    } else if (l.op==START) {
+    } else if (l.op == START) {
       trans(_ItoA(l.prm1));                 // ファイルからデータ転送
+    } else if (l.op == PAUSE) {
+      isPaused = true;
+      dbgPutStr("MP3: Received PAUSE command\n");
+      send(link, OK);
+    } else if (l.op == RESUME) {
+      isPaused = false;
+      dbgPutStr("MP3: Received RESUME command\n");
+      send(link, OK);
     }
   }
 }
-
-
 // ------------ 以下新規追加 ----------------------------
+
+
 
 //-----------------------------------------------------------------------------
 // グローバル変数
