@@ -605,26 +605,6 @@ int getTotalSongs() {
     return count;
 }
 
-
-// // 方法3: 配列の終端に番兵を追加
-// struct song queue_with_sentinel[] = {
-//     {1, "SongSongSong1", 0, "Artist1", "/path/to/song1.mp3"},
-//     {2, "SongSongSong2", 1, "Artist2", "/path/to/song2.mp3"},
-//     {3, "SongSongSongg3", 0, "Artist3", "/path/to/song3.mp3"},
-//     {4, "SongSongSong4", 0, "Artist4", "/path/to/song4.mp3"},
-//     {5, "SongSongSong5", 0, "Artist5", "/path/to/song5.mp3"},
-//     {-1, "", 0, "", ""}  // 終端マーカー
-// };
-
-// int getTotalSongsWithSentinel() {
-//     int count = 0;
-//     for (int i = 0; queue_with_sentinel[i].index != -1; i = i + 1) {
-//         count = count + 1;
-//     }
-//     return count;
-// }
-
-
 // プレイリスト初期化(ノーマル順、シャッフル順の初期化)
 public void initPlaylist() {
     totalSongs = getTotalSongs();
@@ -763,19 +743,20 @@ public void screen2() {
     if (is_normal) putStr("N");
     else putStr("-");
     putStr("/");    
-    if (is_loop) putStr("L");
+    if (is_loop) putCh(chr(0x83));//putStr("L");
     else putStr("-");
     putStr("/");
-    if (is_repeat) putStr("R");
+    if (is_repeat) putCh(chr(0x82));//putStr("R");
     else putStr("-");
     putStr("/");
-    if (is_shuffle) putStr("S");
+    if (is_shuffle) putCh(chr(0x81));//putStr("S");
     else putStr("-");
-    
+  
+
     // // お気に入り表示
     // if (queue[idx].fav) {
     //   locateXY(0, 1);    // ハートを表示する位置（例：画面右上）
-    //   putStr("♥");
+    //   putCh(chr(0x86));  // お気に入り ❤️
     // }; // 現在の曲のお気に入り状態
 
 
@@ -799,24 +780,26 @@ public void screen2() {
     
     // 再生状態
     locateXY(6, 5);
-    if (playstatus == 1) {
-        putStr("||");
-        locateXY(6, 6);
-        putStr("再生中");
+    // 再生中
+    // if (playstatus == 1) {
+    if (isPaused) {
+        // putStr("||");
+        putCh(chr(0x7f)); // 再生中のアイコン
+    // 停止中
     } else {
-        putStr(">|");
-        locateXY(6, 6);
-        putStr("停止中");
+        // putStr(">|");
+        putCh(chr(0x80)); //停止中のアイコン
     }
     
     // 前/次
     locateXY(2, 5);
-    putStr("<");
+    // putStr("<");
+    putCh(chr(0x85));
     locateXY(10, 5);
-    putStr(">");
-    
+    // putStr(">");
+    putCh(chr(0x84));
     // 操作説明
-    locateXY(0, 7);
-    putStr("1:戻る 2/4:↑↓ 3:mode 4:next 5:決定 6:prev");
+    // locateXY(0, 7);
+    // putStr("1:戻る 2/4:↑↓ 3:mode 4:next 5:決定 6:prev");
 }
 
