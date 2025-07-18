@@ -39,3 +39,4 @@ void act_settings(I_StgSt stg_in);   // 設定処理
 void act_stream(I_StrmSt strm_in);   // ストリーム処理
 
 
+

@@ -34,7 +34,6 @@
 
 #include "lcd.hmm"
 #include "mp3Proc.hmm"
-// #include "streamMng.hmm"
 #include "spi.hmm"
 #include "mp3Files.hmm"
 #include "shellProc.hmm"
@@ -198,7 +197,14 @@ void homeScreen() {
   locateXY(3, 6);
   putCh(chr(0x82));  // ループ 🔁
   locateXY(4, 6);
-  putCh(chr(0x83));  // ループ 🔁
+  putCh(chr(0x83));  // リピート
+  locateXY(5, 6);
+  putCh(chr(0x84));  // 次へ
+  locateXY(6, 6);
+  putCh(chr(0x85));  // 前へ
+  locateXY(7, 6);
+  putCh(chr(0x86));  // お気に入り ❤️
+
 
 }
 
@@ -279,7 +285,7 @@ void act_stream(I_StrmSt strm_in) {
             // } else {
             //     mp3resume();
             // }
-            
+
         //     stop(true); // 再生停止
         // } else {
         //     play(mp3FilesGetPath(idx+1)); // 再生開始
@@ -319,60 +325,10 @@ void act_stream(I_StrmSt strm_in) {
 //-----------------------------------------------------------------------------
 int sel_mode = 0;            // 動作状態(0:選択中, 1:設定中)
 int sel_line = 0;        // 設定状態(0:音量, 1:電源)
-int vol = 1;        // 音量(0~10)
-int temp_vol = 1;     // 選択中の音量(決定ボタンで確定)
+int vol = 5;        // 音量(0~10)
+int temp_vol = 5;     // 選択中の音量(決定ボタンで確定)
 int pwr = 0;      // 電源状態(0:ON, 1:OFF)
 int temp_pwr = 0; // 選択中の電源状態(決定ボタンで確定)
-//-----------------------------------------------------------------------------
-// screen3関数：画面表示
-//-----------------------------------------------------------------------------
-void screen3() {
-  cls();
-  locateXY(0,0); putStr("Settings");
-  
-  // volume行
-  locateXY(0,2);
-  putStr(" "); // 初期状態では空白
-  locateXY(2,2);
-  putStr("volume: ");
-  if (sel_line == 0 && sel_mode == 1) {
-    putDec(temp_vol, 2);
-  } else {
-    putDec(vol, 2);
-  }
-
-  // power行
-  locateXY(0,3);
-  putStr(" "); // 初期状態では空白
-  locateXY(2,3);
-  putStr("power : ");
-  if (sel_line == 1 && sel_mode == 1) {
-    if (temp_pwr == 0) {
-      putStr("ON");
-    } else {
-      putStr("OFF");
-    }
-  } else {
-    if (pwr == 0) {
-      putStr("ON");
-    } else {
-      putStr("OFF");
-    }
-  }
-  
-  // 画面切り替え用の表示
-  locateXY(0,6);
-  putStr("Press 1 for MP3 Player");
-  
-  // 操作説明
-  locateXY(0,7);
-  putStr("2/4:Select 6:Enter");
-  
-  // カーソル位置を設定
-  updateCursor(2, 2, sel_line); // 2行目から開始、2つの選択肢、現在の選択
-}
-
-
 //-----------------------------------------------------------------------------
 // 設定画面での操作処理　→　音量調整中は再生を停止し、調整後に再び流れ始める
 //-----------------------------------------------------------------------------
@@ -385,7 +341,8 @@ void act_settings(I_StgSt stg_in) {
     if (num == 2 || num == 4) {                    // SW2(上) または SW4(下)
       sel_line = 1 - sel_line;
     } else if (num == 6) {                         // SW6(決定)
-      stop(true); // 再生停止
+      // stop(true); // 再生停止
+      isPaused = true;
       sel_mode = 1;                                    // 決定ボタンが押され、各値設定モードに移行
     }
   // 設定モード
@@ -393,7 +350,7 @@ void act_settings(I_StgSt stg_in) {
     // 音量設定
     if (sel_line == 0) {
       // 音量値選択
-      if (num == 2 && temp_vol < 9) {          // SW2(上)　上限9
+      if (num == 2 && temp_vol < 10) {          // SW2(上)　上限10
         temp_vol = temp_vol + 1;
       }
       if (num == 4 && temp_vol > 1) {           // SW4(下)　下限1
@@ -403,7 +360,8 @@ void act_settings(I_StgSt stg_in) {
       if (num == 6) {                              // SW6(決定)
         vol = temp_vol;
         set_volume_level(vol);     // ← ここで音量を反映
-        play(mp3FilesGetPath(idx+1)); // 再生開始
+        isPaused = false; // 再生を再開
+        // play(mp3FilesGetPath(idx+1)); // 再生開始
         sel_mode = 0;                               // 決定ボタンが押され、選択モードに戻る
       }
     }
@@ -428,6 +386,75 @@ void act_settings(I_StgSt stg_in) {
     }
   }
 }
+//-----------------------------------------------------------------------------
+// screen3関数：画面表示
+//-----------------------------------------------------------------------------
+void screen3() {
+  cls();
+  locateXY(0,0); putStr("Settings");
+  
+  // volume行
+  locateXY(0,2);
+  putStr(" "); // 初期状態では空白
+  locateXY(2,2);
+  putStr("volume: ");
+
+  int disp_level;
+  if (sel_line == 0 && sel_mode == 1) {
+      disp_level = temp_vol;       // 調整中の音量
+  } else {
+      disp_level = vol;   // 現在の音量
+  }
+
+  putDec(disp_level, 2);  // 「1〜10」の値を表示
+  putStr("/10");          // 最大値の表示
+
+
+  // power行
+  locateXY(0,3);
+  putStr(" "); // 初期状態では空白
+  locateXY(2,3);
+  putStr("power : ");
+  if (sel_line == 1 && sel_mode == 1) {
+    if (temp_pwr == 0) {
+      putStr("ON");
+    } else {
+      putStr("OFF");
+    }
+  } else {
+    if (pwr == 0) {
+      putStr("ON");
+    } else {
+      putStr("OFF");
+    }
+  }
+
+  // ------- 音量バーの表示 ---------------------------
+
+  locateXY(1,6);
+  putCh(chr(0x87)); // メガホン
+  locateXY(2,6);
+  putCh(chr(0x88));  // Wi-Fi
+  locateXY(4,6); 
+  int vol_bar;
+  if (sel_line == 0 && sel_mode == 1) {
+      vol_bar = temp_vol;  // 音量調整中の一時値
+  } else {
+      vol_bar = vol;  // 通常時の音量
+  }
+  // バーの表示
+  for (int i = 1; i <= 10; i = i + 1) {
+      if (i <= vol_bar) {
+          putCh(chr(0x89));  // 音量あり部分
+      } else {
+          putCh(chr(0x8a));  // 空き部分
+      }
+  }
+  
+  // カーソル位置を設定
+  updateCursor(2, 2, sel_line); // 2行目から開始、2つの選択肢、現在の選択
+}
+
 
 // ================================================================================
 // 3：設定終了
