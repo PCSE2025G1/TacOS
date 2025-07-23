@@ -375,12 +375,18 @@ void act_settings(I_StgSt stg_in) {
         pwr = temp_pwr;
         sel_mode = 0;                                  // 決定ボタンが押され、選択モードに戻る
         // 電源OFFならオフ画面に
-        if (pwr == 1) {            
+        if (pwr == 1) {     
+          stop(false);     
           cls();
           locateXY(0, 2);
           putStr("Shutting down...");
           sleep(1000);
-          // power_off();                           // 電源OFF処理があれば呼び出す  
+          power_off(); // 電源OFF処理があれば呼び出す  
+          
+          // -- 復帰後 ----
+          set_volume_level(vol);   // 音量レベル再設定
+          pwr = 0; // 電源状態をリセット
+          isPaused = false; // 再生を再開
         }
       }
     }
