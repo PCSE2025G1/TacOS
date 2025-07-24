@@ -135,21 +135,7 @@ char[][] fontDat = {
     { '\x0f','\x81','\x81','\x81','\x81','\x81','\x81','\x0f' },
 
     // 8a(音量なし)　■
-    { '\xff','\xff','\xff','\xff','\xff','\xff','\xff','\xff' },
-
-
-
-      // 90〜97 ちいかわフレーム（8×8構成）
-    { '\x18', '\x3C', '\x7E', '\x5A', '\x7E', '\x24', '\x00', '\x00' }, // 8b
-    { '\x18', '\x3C', '\x7E', '\x5A', '\x7E', '\x24', '\x00', '\x00' }, // 8c
-    { '\x00', '\x3C', '\x42', '\x42', '\x3C', '\x00', '\x18', '\x00' }, // 8d
-    { '\x00', '\x3C', '\x42', '\x42', '\x3C', '\x00', '\x18', '\x00' }, // 8e
-
-    { '\x00', '\x24', '\x7E', '\x42', '\x7E', '\x3C', '\x18', '\x00' }, // 8f
-    { '\x00', '\x24', '\x7E', '\x42', '\x7E', '\x3C', '\x18', '\x00' }, // 90
-    { '\x08', '\x3C', '\x5A', '\x5A', '\x24', '\x00', '\x18', '\x00' }, // 91
-    { '\x10', '\x3C', '\x5A', '\x5A', '\x24', '\x00', '\x18', '\x00' }  // 92
-
+    { '\xff','\xff','\xff','\xff','\xff','\xff','\xff','\xff' }
   };
 
 
@@ -157,7 +143,6 @@ char[][] fontDat = {
 public char[] font(char code) {
   if (ord(code)<=0x20) return fontDat[0];
   // if (ord(code)>=0x7f) return fontDat[0];
-  // if (ord(code) >= 0x7f + 12) return fontDat[0];  // ← 拡張
-  if (ord(code) >= 0x7f + 20) return fontDat[0];  // ← 拡張
+  if (ord(code) >= 0x7f + 12) return fontDat[0];  // ← 拡張
   return fontDat[ord(code)-0x20];
 }
