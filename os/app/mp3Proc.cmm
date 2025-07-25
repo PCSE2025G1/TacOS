@@ -36,6 +36,7 @@
 #include "lcd.hmm"
 #include "mp3Files.hmm"
 #include "mm.hmm"// mallocでのメモリ管理
+#include "settingsMng.hmm"
 // 再生モード定義
 #define MODE_NORMAL  0    // 通常再生
 #define MODE_LOOP    1    // ループ（全曲順次再生後、最初に戻る）
@@ -406,6 +407,8 @@ void trans(char[] path) {
 
     spiWriteMp3Dat(buf, len);
     updatePlaybackTime();
+
+    // if (speed_delay > 0) sleep(speed_delay);  // 再生速度制御
   }
   // while ((len = read(fd, buf, BUFSIZ)) > 0) {
   //   // 停止された場合は抜ける
@@ -428,6 +431,67 @@ void trans(char[] path) {
   close(fd);
   playstatus = -1;
 }
+
+// (2：速度調整バージョン)曲の間に遅延を挟むバージョンで
+// #define MP3_DREQ_HIGH ((in(0x18) & 0x80) != 0)
+// #define CHUNK 32  // VS1011 は32バイト単位で供給するのが安定
+
+// void trans(char[] path) {
+//   int fd = open(path, READ_MODE);
+//   if (fd < 0) {
+//     send(link, ERR);
+//     return;
+//   }
+//   send(link, OK);
+
+//   calculateEstimatedDuration(path);
+
+//   int len;
+//   int sent = 0;
+
+//   while (true) {
+//     if (syncFlag) break;
+
+//     while (isPaused) {
+//       if (syncFlag) break;
+//       dbgPutStr("Paused...\n");
+//       sleep(100);
+//     }
+
+//     if (syncFlag) break;
+
+//     // 🔁 バッファが空になったら新たに読み込む
+//     if (sent == len) {
+//       len = read(fd, buf, BUFSIZ);
+//       sent = 0;
+//       if (len <= 0) break;
+//     }
+
+//     // 遅延でテンポ調整（ゆっくり）
+//     if (speed_delay > 0) sleep(speed_delay);
+
+//     // DREQが立つまで待つ
+//     while (!MP3_DREQ_HIGH) sleep(0);
+
+//     // 最大32バイトずつ送信（末尾切れ防止）
+//     int remaining = len - sent;
+//     int chunk;
+//     if (remaining < CHUNK) {
+//       chunk = remaining;
+//     } else {
+//       chunk = CHUNK;
+//     }
+//     spiWriteMp3Dat(_addrAdd(buf, sent), chunk);
+//     sent = sent + chunk;
+
+//     updatePlaybackTime();
+
+//   }
+
+//   spiFlushMp3();
+//   close(fd);
+//   playstatus = -1;
+// }
 
 // mp3Main は，プロセスのメインルーチンとしてカーネルに登録しておく．
 // ここからプロセスの実行が始まる

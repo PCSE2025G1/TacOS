@@ -17,5 +17,10 @@ public void power_off();
 public void up_volume(int level);
 public void down_volume(int level);
 
+public void set_speed(int speed_mode);
+// public int speed_delay; // 速度調整用の遅延時間
+// public void set_speed();
+// public int speed_mode; // スピード(0:0.5x, 1:1.0x, 2:2.0x)
+
 // public void up_volume();
 // public void down_volume();

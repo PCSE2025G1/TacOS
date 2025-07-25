@@ -130,6 +130,8 @@ void initQueue() {
 //-----------------------------------------------------------------------------
 int currentScreen = 0;   // 現在の画面 (0:home, 1:screen1, 2:screen2, 3:screen3)
 int homeSelection = 0;   // ホーム画面での選択項目 (0:screen1, 1:screen2, 2:screen3)
+
+int sel_mode = 0;            // 動作状態(0:選択中, 1:設定中)
 //-----------------------------------------------------------------------------
 // 共通のカーソル表示関数
 //-----------------------------------------------------------------------------
@@ -145,6 +147,12 @@ void updateCursor(int startRow, int itemCount, int selectedIndex) {
   // 現在の選択位置にカーソルを表示
   locateXY(0, startRow + selectedIndex);
   putStr(">");
+
+  if (sel_mode == 1) {
+    // 選択中の項目にカーソルを表示
+    locateXY(0, startRow + selectedIndex);
+    putStr("*");
+  }
 }
 
 
@@ -323,12 +331,15 @@ void act_stream(I_StrmSt strm_in) {
 //-----------------------------------------------------------------------------
 // グローバル変数：状態を保持
 //-----------------------------------------------------------------------------
-int sel_mode = 0;            // 動作状態(0:選択中, 1:設定中)
-int sel_line = 0;        // 設定状態(0:音量, 1:電源)
+// int sel_mode = 0;            // 動作状態(0:選択中, 1:設定中)
+int sel_line = 0;        // 設定状態(0:音量, 1:電源, 2:スピード)
 int vol = 5;        // 音量(0~10)
 int temp_vol = 5;     // 選択中の音量(決定ボタンで確定)
 int pwr = 0;      // 電源状態(0:ON, 1:OFF)
 int temp_pwr = 0; // 選択中の電源状態(決定ボタンで確定)
+
+int speed_mode = 1;     // スピード(0:0.5x, 1:1.0x, 2:2.0x)
+int temp_speed = 1;
 //-----------------------------------------------------------------------------
 // 設定画面での操作処理　→　音量調整中は再生を停止し、調整後に再び流れ始める
 //-----------------------------------------------------------------------------
@@ -337,14 +348,24 @@ void act_settings(I_StgSt stg_in) {
   int num = swToNum(stg_in.sw);  // 構造体からスイッチ番号に変換
 
   if (sel_mode == 0) {
-    // 選択モード(音量か、電源か)
-    if (num == 2 || num == 4) {                    // SW2(上) または SW4(下)
-      sel_line = 1 - sel_line;
-    } else if (num == 6) {                         // SW6(決定)
-      // stop(true); // 再生停止
+    // 選択モード（音量/電源/スピード）
+    if (num == 2 && sel_line > 0) {
+      sel_line = sel_line - 1;  // 上へ（上限0）
+    } else if (num == 4 && sel_line < 2) {
+      sel_line = sel_line + 1;  // 下へ（下限2）
+    } else if (num == 6) {
       isPaused = true;
-      sel_mode = 1;                                    // 決定ボタンが押され、各値設定モードに移行
+      sel_mode = 1;
     }
+  // if (sel_mode == 0) {
+  //   // 選択モード(音量か、電源か)
+  //   if (num == 2 || num == 4) {                    // SW2(上) または SW4(下)
+  //     sel_line = 1 - sel_line;
+  //   } else if (num == 6) {                         // SW6(決定)
+  //     // stop(true); // 再生停止
+  //     isPaused = true;
+  //     sel_mode = 1;                                    // 決定ボタンが押され、各値設定モードに移行
+  //   }
   // 設定モード
   } else {
     // 音量設定
@@ -386,8 +407,20 @@ void act_settings(I_StgSt stg_in) {
           // -- 復帰後 ----
           set_volume_level(vol);   // 音量レベル再設定
           pwr = 0; // 電源状態をリセット
-          isPaused = false; // 再生を再開
         }
+        isPaused = false; // 再生を再開
+      }
+    }else if (sel_line == 2) {
+      // スピード設定
+      if (num == 2 && temp_speed < 2) temp_speed = temp_speed + 1; // 上限2
+      if (num == 4 && temp_speed > 0) temp_speed = temp_speed - 1;
+      if (num == 6) {
+        speed_mode = temp_speed;
+        set_speed(speed_mode);  // 再生スピード反映
+        // set_speed();  // 再生スピード反映
+        play(mp3FilesGetPath(idx+1)); // 再生開始
+        isPaused = false;
+        sel_mode = 0;
       }
     }
   }
@@ -399,7 +432,7 @@ void screen3() {
   cls();
   locateXY(0,0); putStr("Settings");
   
-  // volume行
+  // volume行----------------------
   locateXY(0,2);
   putStr(" "); // 初期状態では空白
   locateXY(2,2);
@@ -416,7 +449,7 @@ void screen3() {
   putStr("/10");          // 最大値の表示
 
 
-  // power行
+  // power行--------------------------
   locateXY(0,3);
   putStr(" "); // 初期状態では空白
   locateXY(2,3);
@@ -434,29 +467,106 @@ void screen3() {
       putStr("OFF");
     }
   }
-
-  // ------- 音量バーの表示 ---------------------------
-
-  locateXY(1,6);
-  putCh(chr(0x87)); // メガホン
-  locateXY(2,6);
-  putCh(chr(0x88));  // Wi-Fi
-  locateXY(4,6); 
-  int vol_bar;
-  if (sel_line == 0 && sel_mode == 1) {
-      vol_bar = temp_vol;  // 音量調整中の一時値
+   // ----------- speed行 -------------
+  locateXY(0,4); putStr(" ");
+  locateXY(2,4); putStr("speed : ");
+  int disp_speed;
+  if(sel_line == 2 && sel_mode == 1) {
+    if(temp_speed == 0) {
+      disp_speed = 0; // 0.5x
+    } else if(temp_speed == 1) {
+      disp_speed = 1; // 1.0x
+    } else {
+      disp_speed = 2; // 2.0x 
+    }
   } else {
-      vol_bar = vol;  // 通常時の音量
+    disp_speed = speed_mode; // 現在のスピード
   }
-  // バーの表示
-  for (int i = 1; i <= 10; i = i + 1) {
-      if (i <= vol_bar) {
-          putCh(chr(0x89));  // 音量あり部分
-      } else {
-          putCh(chr(0x8a));  // 空き部分
-      }
+
+  if (disp_speed == 0) {
+    putStr("0.5x");
+  } else if (disp_speed == 1) {
+    putStr("1.0x");
+  } else {
+    putStr("2.0x");
   }
-  
+
+  // ----　各イラスト表示 -----------------------------
+  // ------- 音量バーの表示 (音量メニュー選択中)---------------------------
+  if (sel_line == 0) {
+    locateXY(1,6);
+    putCh(chr(0x87)); // メガホン
+    locateXY(2,6);
+    putCh(chr(0x88));  // Wi-Fi
+    locateXY(4,6); 
+
+    int vol_bar;
+    if (sel_mode == 1) {    // 決定ボタンが押された状態
+        vol_bar = temp_vol;  // 音量調整中の一時値
+    } else {
+        vol_bar = vol;  // 通常時の音量
+    }
+    // バーの表示
+    for (int i = 1; i <= 10; i = i + 1) {
+        if (i <= vol_bar) {
+            putCh(chr(0x89));  // 音量あり部分
+        } else {
+            putCh(chr(0x8a));  // 空き部分
+        }
+    }
+  }
+  // ------- 電源の表示 (電源メニュー選択中)---------------------------
+  else if (sel_line == 1) {
+    locateXY(3,6);
+    putCh(chr(0x8b)); // 電源on　左
+    putCh(chr(0x8c)); // 　　　　右
+    locateXY(6,6);
+    putCh(chr(0x8d)); // 電源off左
+    putCh(chr(0x8e)); // 　　　　右
+
+    int disp_pwr;
+    if (sel_mode == 1) {  // 決定ボタンが押された状態
+      disp_pwr = temp_pwr; // 選択中の電源状態
+    }
+    else disp_pwr = pwr; // 現在の電源状態
+
+    if (disp_pwr == 0) {   // 電源ONに上矢印
+      locateXY(7,7);
+      putCh(chr(0x8f));
+    } else {               // 電源OFFに上矢印
+      locateXY(4,7);
+      putCh(chr(0x8f));
+    }
+  }
+  else if (sel_line == 2 ){
+    locateXY(3,6);
+    putCh(chr(0x90)); // かめ　左
+    putCh(chr(0x91)); // 　　　　右
+    locateXY(7,6);
+    putCh(chr(0x92)); // 人
+    locateXY(10,6);
+    putCh(chr(0x93)); // うさぎ　左
+    putCh(chr(0x94)); // 　　　　右
+
+    int disp_spd;
+    if (sel_mode == 1) {  // 決定ボタンが押された状態
+      disp_spd = temp_speed; // 選択中のスピード状態
+    }
+    else disp_spd = speed_mode; // 現在のスピード状態
+
+    if (disp_spd == 0) {   // 0.5x
+      locateXY(5,6);
+      putCh(chr(0x95));
+    } else if (disp_spd == 1) {   // 1.0x
+      locateXY(8,6);
+      putCh(chr(0x95));
+    } else {   // 2.0x
+      locateXY(12,6);
+      putCh(chr(0x95));
+    }
+  }
+
+
   // カーソル位置を設定
   updateCursor(2, 2, sel_line); // 2行目から開始、2つの選択肢、現在の選択
 }
@@ -486,6 +596,7 @@ char[][] chii_font_list = {
   { '\x80','\x80','\x80','\x80','\x70','\x10','\x10','\x10' },  // (x,y) = (1,3)
   { '\x11','\xa2','\xdc','\x60','\x40','\x43','\x46','\x7c' },  // (x,y) = (1,4)
   { '\x0c','\x80','\x80','\x00','\x00','\x00','\x00','\x00' }   // (x,y) = (1,5)
+  //3行目
 
 
 };
@@ -508,7 +619,7 @@ void initialScreen() {
   putStr("Welcome to MP3 Player");
 
   disp_chii(0, 1);  // (0,3) から 6×7 マスのビットパターンを描画
-  sleep(5000);            // アニメーションっぽく少し待つ
+  sleep(3000);            // アニメーションっぽく少し待つ
   cls();
 }
 
@@ -538,6 +649,7 @@ public void shellMain() {
 
   initialScreen(); // 初期画面(ちいかわ画面))
   homeScreen(); // 初期画面を表示
+  set_volume_level(vol); // 音量の初期化
 
   dbgPutStr("Home screen displayed\n");
   
