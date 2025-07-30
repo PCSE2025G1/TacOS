@@ -30,6 +30,7 @@
 #include <kernel.hmm>
 #include <util.hmm>
 #include <appUtil.hmm>
+#include <fs.hmm>
 
 #include "lcd.hmm"
 #include "mp3Proc.hmm"
@@ -39,6 +40,8 @@
 #include "structures.hmm"
 #include "screenMng.hmm"
 #include "playlistMng.hmm"
+#include "libMng.hmm"
+#include "settingsMng.hmm"
 
 //-----------------------------------------------------------------------------
 // スイッチの読み取り
@@ -83,130 +86,910 @@ int swToNum(int sw) {
 }
 
 //-----------------------------------------------------------------------------
-// 画面表示
+// スクリーン操作関係の処理
 //-----------------------------------------------------------------------------
-void demoScreen() {
-  cls();                                            // LCDをクリアする
-  locateXY(0,0); putStr("MP3 Player demo");
-  for (int i=1; i<=5; i=i+1) {                      // スイッチ1〜5に付いて
-    locateXY(2,i+1);
-    putCh(chr(ord('0')+i));                         // スイッチの番号
-    putStr(":");
-    char[] fname = mp3FilesGetName(i);              // 対応するファイル名
-    if (fname!=null) putStr(fname);
-  }
-  locateXY(2,7);
-  putStr("6:stop");                                 // 6番のスイッチ
+// ------ 変数群 ------
+// スクリーンに表示するためのオブジェクト群
+void[][] screen = {
+    null, null, null, null, null, null, null, null, null, null,
+    null, null, null, null, null, null, null, null, null, null,
+    null, null, null, null, null, null, null, null, null, null,
+    null, null, null, null, null, null, null, null, null, null,
+    null, null, null, null, null, null, null, null, null, null
+};
+
+song[] queue;
+
+// mode群
+modeSt[] modes = {
+    {"mode", 1, "Streaming"},
+    {"mode", 2, "Songs"},
+    {"mode", 3, "Playlists"},
+    {"mode", 4, "Settings"},
+    null
+};
+
+// 選択肢
+modeSt[] choises = {
+    {"mode", -1, "YES"},
+    {"mode", -1, "NO"},
+    null
+};
+
+// 設定モード群
+modeSt[] settings = {
+    {"mode", -1, "volume"},
+    {"mode", -1, "power off"},
+    null
+};
+
+// playlist設定群
+modeSt[] playlistSettings = {
+    {"mode", -1, "Make Playlist"},
+    {"mode", -1, "Delete Playlist"},
+    {"mode", -1, "Add Songs"},
+    {"mode", -1, "Remove Songs"},
+    null
+};
+
+// playlist編集時に必要になる
+int selecting_num = 0;
+char[] now_dir = "          ";
+boolean[][] is_selectings = {
+    {false, false, false, false, false, false, false, false, false, false},
+    {false, false, false, false, false, false, false, false, false, false},
+    {false, false, false, false, false, false, false, false, false, false},
+    {false, false, false, false, false, false, false, false, false, false},
+    {false, false, false, false, false, false, false, false, false, false},
+    {false, false, false, false, false, false, false, false, false, false},
+    {false, false, false, false, false, false, false, false, false, false},
+    {false, false, false, false, false, false, false, false, false, false},
+    {false, false, false, false, false, false, false, false, false, false},
+    {false, false, false, false, false, false, false, false, false, false}
+};
+SelectingItem[] selectingItems = {
+    {"selectingItem", "          ",  null},
+    {"selectingItem", "          ",  null},
+    {"selectingItem", "          ",  null},
+    {"selectingItem", "          ",  null},
+    {"selectingItem", "          ",  null},
+    {"selectingItem", "          ",  null},
+    {"selectingItem", "          ",  null},
+    {"selectingItem", "          ",  null},
+    {"selectingItem", "          ",  null},
+    {"selectingItem", "          ",  null}
+};
+song[] playlistSongs = { // プレイリストに追加、削除する曲群
+    {"song", -1, "", false, "", "                              "},
+    {"song", -1, "", false, "", "                              "},
+    {"song", -1, "", false, "", "                              "},
+    {"song", -1, "", false, "", "                              "},
+    {"song", -1, "", false, "", "                              "},
+    {"song", -1, "", false, "", "                              "},
+    {"song", -1, "", false, "", "                              "},
+    {"song", -1, "", false, "", "                              "},
+    {"song", -1, "", false, "", "                              "},
+    {"song", -1, "", false, "", "                              "}
+};
+
+
+
+// スクリーンをリセットする
+void resetScreen() {
+    for (int i=0; i<50; i=i+1) {
+        screen[i] = null;
+    }
 }
 
-void asta(int y) {
-  demoScreen();
-  locateXY(0, y+1);
-  putCh('>');
+// selecting itemsをリセットする
+void init_selectingItems() {
+    for (int i=0; i<10; i=i+1) {
+        strCpy(playlistSongs[i].path, "");
+        playlistSongs[i].index = -1;
+        selectingItems[i].is_selecting = is_selectings[i];
+        strCpy(selectingItems[i].name, "");
+        
+        for (int j=0; j<10; j=j+1)
+            selectingItems[i].is_selecting[j] = false;
+    }
+
+    selecting_num = 0;
+    strCpy(now_dir, "");
+}
+
+// ------ 関数群 ------
+// Homeスクリーンを描画
+void goHomeScreen() {
+    // スクリーンのリセット
+    resetScreen();
+
+    // スクリーンにモードをセット
+    int i = 0;
+    while (modes[i] != null) {
+        screen[i] = modes[i];
+
+        i = i + 1;
+    }
+
+    // スクリーンに描画
+    display_items(screen, "Menu", "mode");
+}
+
+// 選曲スクリーンを描画
+void goSelectScreen() {
+    // スクリーンのリセット
+    resetScreen();
+
+    // ここでヒストリーとかの情報を取得できるようにしたいよね
+    playlist[] playlists = fetch_playlists();
+    album[] albums = fetch_albums();
+
+    // スクリーンにプレイリストをセット
+    int i = 0;
+    while (i < 5 && playlists[i].num != -1) {
+        screen[i] = playlists[i];
+
+        i = i + 1;
+    }
+
+    int j = 0;
+    // スクリーンにアルバムをセット
+    while (j < 5 && albums[j].num != -1) {
+        screen[i] = albums[j];
+
+        i = i + 1;
+        j = j + 1;
+    }
+    
+    display_items(screen, "Select Songs", "mode");
+}
+
+// 選曲スクリーンを描画
+song[] goSongsScreen(char[] name, char[] sort) {
+    // スクリーンのリセット
+    resetScreen();
+
+    // 曲をとってくる
+    song[] songs = fetch_songs(name, sort);
+
+    // スクリーンに曲をセット
+    int i = 0;
+    while (songs[i].index != -1) {
+        screen[i] = songs[i];
+        printF("%s, ", songs[i].path);
+
+        i = i + 1;
+    }
+
+    // スクリーンに描画
+    display_items(screen, "Select Songs", "straight");
+
+    return songs;
+}
+
+// 設定スクリーンを描画
+void goSettingsScreen() {
+    // スクリーンのリセット
+    resetScreen();
+
+    // スクリーンに要素をセット
+    int i = 0;
+    while (settings[i] != null) {
+        screen[i] = settings[i];
+
+        i = i + 1;
+    }
+
+    // スクリーンに描画
+    display_items(screen, "Settings", "mode");
+}
+
+void goChoiseScreen(char[] title) {
+    // スクリーンのリセット
+    resetScreen();
+
+    screen[0] = choises[0];
+    screen[1] = choises[1];
+
+    // スクリーンに描画
+    display_items(screen, title, "straight");
+}
+
+void goPlaylistSettingsScreen() {
+    // スクリーンのリセット
+    resetScreen();
+
+    // スクリーンに要素をセット
+    int i = 0;
+    while (playlistSettings[i] != null) {
+        screen[i] = playlistSettings[i];
+
+        i = i + 1;
+    }
+
+    // スクリーンに描画
+    display_items(screen, "Playlist Settings", "mode");
+}
+
+void goMakeScreen() {
+    // スクリーンのリセット
+    resetScreen();
+
+    album[] albums = fetch_albums();
+
+    int i = 0;
+    while (albums[i].num != -1) {
+        screen[i] = albums[i];
+
+        i = i + 1;
+    }
+
+    // スクリーンに描画
+    display_items(screen, "Select Albums", "straight");
+}
+
+void goDeleteScreen() {
+    // スクリーンのリセット
+    resetScreen();
+
+    playlist[] playlists = fetch_playlists();
+
+    int i = 0;
+    while (playlists[i].num != -1) {
+        screen[i] = playlists[i];
+
+        i = i + 1;
+    }
+
+    // スクリーンに描画
+    display_items(screen, "Delete Playlist", "straight");
+}
+
+void goAddScreen() {
+    // スクリーンのリセット
+    resetScreen();
+
+    playlist[] playlists = fetch_playlists();
+
+    int i = 0;
+    while (playlists[i].num != -1) {
+        screen[i] = playlists[i];
+
+        i = i + 1;
+    }
+
+    // スクリーンに描画
+    display_items(screen, "Select Albums", "straight");
+}
+
+void goRemoveScreen() {
+    // スクリーンのリセット
+    resetScreen();
+
+    playlist[] playlists = fetch_playlists();
+
+    int i = 0;
+    while (playlists[i].num != -1) {
+        screen[i] = playlists[i];
+
+        i = i + 1;
+    }
+
+    // スクリーンに描画
+    display_items(screen, "Select Albums", "straight");
 }
 
 //-----------------------------------------------------------------------------
 // MP3 プレーヤのメインプロセス
 //-----------------------------------------------------------------------------
-// ここからプロセスの実行が始まる
+// select()によってリターンされたオブジェクトの型を判定するためのmeta変数
 
-void[] tmp;
-typeSt tmptype;
-modeSt tmpmode;
-song tmpsong;
-album tmpalbum;
-playlist tmpplaylist;
+// 現在のモード
+int mode = 0;
+boolean is_power = false;
 
-void[][] v = {
-    null, null, null, null, null, null, null, null, null, null, null
-};
+void selected_when_create_and_add(SelectedItem s) {
+    void[] tmp= s.item;
+    typeSt tmptype = tmp;
 
+    if (strCmp(tmptype.type, "album") == 0) {
+        // 初期化
+        resetScreen();
+        check_item(-1);
+        
+        album tmpalbum = tmp;
 
-modeSt mmm1 = {"mode", 0, "Fuji Kaze"};
-modeSt mmm0 = {"mode", 1, "Hirasawa Susumu"};
-modeSt mmm2 = {"mode", 2, "Misesu"};
-playlist ppp0 = {"playlist", 0, "playlist"};
-playlist ppp1 = {"playlist", 1, "playlist0"};
-playlist ppp2 = {"playlist", 2, "playlist1"};
-song sss0 = {"song", 0, "Michi", true, "Fuji Kaze", "Michi.mp3"};
-song sss1 = {"song", 1, "Kirari", true, "Fuji Kaze", "Kirari.mp3"};
-song sss2 = {"song", 2, "Workin' Hard", true, "Fuji Kaze", "Workin' Hard.mp3"};
+        goSongsScreen(tmpalbum.name, null);
 
-song[] songlist = {
-    {"song", 0, "Michi", true, "Fuji Kaze", "Michi.mp3"}, 
-    {"song", 1, "Kirari", true, "Fuji Kaze", "Kirari.mp3"}, 
-    {"song", 2, "Workin' Hard", true, "Fuji Kaze", "Workin' Hard.mp3"},
-    null};
-
-song[] deletesongs = {
-    {"song", 0, "Michi", true, "Fuji Kaze", "Michi.mp3"}, 
-    null
-};
-
-SelectedItem s;
-public void shellMain() {
-
-  spiResetLcd();                                    // sleepを使用するので
-  spiResetMp3();                                    //   プロセスが実行する
-  mp3FilesInit();                                   // ファイル一覧を作る
-  demoScreen();                                     // 画面を初期化
-  cls();
-  v[0] = mmm0;
-  v[1] = mmm1;
-  v[2] = mmm2;
-
-  display_items(v, "Artist", "mode");
-
-  // playlistMngのテスト
-  create_playlist(songlist);
-  create_playlist(songlist);
-  create_playlist(songlist);
-  add_songs("pl2", songlist);
-  add_songs("pl2", songlist);
-  remove_songs("pl2", deletesongs);
-
-  for (;;) {
-    int sw = readSw();
-    int num = swToNum(sw);
-    if (num==6) {                                   // 6 番のスイッチが押された
-      stop(true);
-      s = select();
-      tmp = s.item;
-      tmptype = tmp;
-      if (strCmp(tmptype.type, "mode") == 0) {
-          tmp = tmptype;
-          tmpmode = tmp;
-          if (strCmp(tmpmode.name, "Fuji Kaze") == 0) {
-              v[0] = ppp0;
-              v[1] = ppp1;
-              v[2] = ppp2;
-              display_items(v, "Fuji Kaze", "straight");
-          }
-      } else if (strCmp(tmptype.type, "playlist") == 0) {
-          tmp = tmptype;
-          tmpplaylist = tmp;
-          if (strCmp(tmpplaylist.name, "playlist") == 0) {
-              v[0] = sss0;
-              v[1] = sss1;
-              v[2] = sss2;
-              display_items(v, "Fuji Kaze FAV", "straight");
-          }
-      }
-    } else if (num == 1) {
-        up_cursor();
-    } else if (num == 5) {
-        down_cursor();
-    } else if (num == 3) {
-        back();
+        strCpy(now_dir, tmpalbum.name);
+        
+        // もしもともとseleting itemsに保存されていれば、checkをつける
+        for (int i=0; i<10; i=i+1) {
+            if (strCmp(selectingItems[i].name, tmpalbum.name) == 0) {
+                for (int j=0; j<10; j=j+1) {
+                    if (selectingItems[i].is_selecting[j])
+                        check_item(j);
+                }
+                break;
+            }
+            else if(strCmp(selectingItems[i].name, "") == 0) {
+                strCpy(selectingItems[i].name, now_dir);
+                break;
+            }
+        }
     }
-    else if (num>0 && mp3FilesGetName(num)!=null) { // ファイルと対応するボタン
-      demoScreen();                                 // 画面を初期化
-      asta(num);                                    // 再生中の曲に印を表示
-      play(mp3FilesGetPath(num));                   // 再生開始
-      dbgPutStr(mp3FilesGetPath(num));
-      dbgPutStr("\n");
+    else if (strCmp(tmptype.type, "song") == 0) {
+        boolean is_check = check_item(s.idx);
+        song tmpsong = tmp;
+
+        if (is_check) {
+            if (selecting_num == 10) {
+                check_item(s.idx);
+            }
+            else {
+                for (int i=0; i<10; i=i+1) {
+                    if (strCmp(playlistSongs[i].path, "") == 0) {
+                        strCpy(playlistSongs[i].path, tmpsong.path);
+                        playlistSongs[i].index = 0;
+                        break;
+                    }
+                }
+
+                selecting_num = selecting_num + 1;
+
+                for (int i=0; i<10; i=i+1) {
+                    if (strCmp(selectingItems[i].name, now_dir) == 0) {
+                        selectingItems[i].is_selecting[s.idx] = true;
+                    }
+                }
+            }
+        }
+        else {
+            for (int i=0; i<10; i=i+1) {
+                if (strCmp(playlistSongs[i].path, tmpsong.path) == 0) {
+                    strCpy(playlistSongs[i].path, "");
+                    playlistSongs[i].index = -1;
+                    break;
+                }
+            }
+
+            selecting_num = selecting_num - 1;
+
+            for (int i=0; i<10; i=i+1) {
+                if (strCmp(selectingItems[i].name, now_dir) == 0) {
+                    selectingItems[i].is_selecting[s.idx] = false;
+                }
+            }
+        }
     }
-    sleep(10);                                      // 10ms に一度
-  }
 }
 
+// モードを表す値
+#define MENU 0
+#define STREAMING 1
+#define SONGS 2
+#define PLAYLISTS 3
+#define SETTINGS 4
+#define MAKE 5
+#define DELETE 6
+#define ADD 7
+#define REMOVE 8
+#define VOLUME 9
+
+// 再生画面に送る情報
+DisplaySongInfo info = {
+    null,
+    0,
+    0,
+    false,
+    false,
+    false,
+    false,
+    0,
+    false
+};
+
+
+public void shellMain() {
+    spiResetLcd();                                    // sleepを使用するので
+    spiResetMp3();                                    //   プロセスが実行する
+    mp3FilesInit();                                   // ファイル一覧を作る
+
+    // mp3Proc init
+    initPlaylist();
+
+    // 初回起動時はホーム画面
+    goHomeScreen();
+
+    init_selectingItems();
+
+    for (;;) {
+        int sw = readSw();
+        int num = swToNum(sw);
+
+        // --- 強制メニューモード移動 ---
+        if (num == 1) {
+            mode = MENU;
+            goHomeScreen();
+
+            check_item(-1);
+            init_selectingItems();
+
+            is_power = false;
+        }
+
+ // --- モードごとに処理を分ける ---
+        // メニューモード
+        if (mode == MENU) {
+            if (num == 2) {
+                up_cursor();
+            }
+            else if (num == 4) {
+                down_cursor();
+            }
+            else if (num == 6) {
+                SelectedItem s = select();
+
+                void[] tmp = s.item;
+                modeSt tmpmode = tmp;
+
+                if (tmpmode.id == STREAMING) {
+                    mode = STREAMING;
+
+                    info.playingsong = get_playingsong();
+                    info.idx = get_idx();
+                    info.is_normal = get_is_normal();
+                    info.is_loop = get_is_loop();
+                    info.is_repeat = get_is_repeat();
+                    info.is_shuffle = get_is_shuffle();
+                    info.playstatus = get_playstatus();
+                    info.totalsongs = get_totalsongs();
+                    info.is_paused = get_ispaused();
+
+                    streamScreen(info);
+                }
+                else if (tmpmode.id == SONGS) {
+                    mode = SONGS;
+                    goSelectScreen();
+                }
+                else if (tmpmode.id == PLAYLISTS) {
+                    mode = PLAYLISTS;
+
+                    goPlaylistSettingsScreen();
+                }
+                else if (tmpmode.id == SETTINGS) {
+                    mode = SETTINGS;
+
+                    goSettingsScreen();
+                }
+            }
+        }
+        // 再生モード
+        else if (mode == STREAMING) {
+            if (num == 3) {
+                if (get_is_normal()) loop();
+                else if (get_is_loop()) repeat();
+                else if (get_is_repeat()) shuffle();
+                else if (get_is_shuffle()) normal();
+
+                info.is_normal = get_is_normal();
+                info.is_loop = get_is_loop();
+                info.is_repeat = get_is_repeat();
+                info.is_shuffle = get_is_shuffle();
+
+                streamScreen(info); 
+            }
+            else if (num == 4) {
+                previous();
+                
+                info.idx = get_idx();
+                info.playingsong = get_playingsong();
+                streamScreen(info);
+            }
+            else if (num == 5) {
+                if (get_playstatus() == 1) {
+                    if (get_ispaused()) mp3resume();
+                    else mp3pause();
+                }
+
+                info.playstatus = get_playstatus();
+                info.is_paused = get_ispaused();
+                streamScreen(info);
+            }
+            else if (num == 6) {
+                next();
+
+                info.idx = get_idx();
+                info.playingsong = get_playingsong();
+                streamScreen(info);
+            }
+        }
+        // 選曲モード 
+        else if (mode == SONGS) {
+            // 本当はここでファイルとディレクトリを読み出してくる
+            if (num == 1) {}
+            else if (num == 2) {
+                up_cursor();
+            }
+            else if (num == 3) {
+                back();
+            }
+            else if (num == 4) {
+                down_cursor();
+            }
+            else if (num == 5) {
+                // sort
+            }
+            else if (num == 6) {
+                SelectedItem s = select();
+
+                void[] tmp = s.item;
+                typeSt tmptype = tmp;
+
+                if (strCmp(tmptype.type, "album") == 0) {
+                    album tmpalbum = tmp;
+
+                    // アルバムから曲をとる
+                    queue = goSongsScreen(tmpalbum.name, null);
+                }
+                else if (strCmp(tmptype.type, "playlist") == 0) {
+                    playlist tmpplaylist = tmp;
+
+                    // プレイリストから曲をとる
+                    queue = goSongsScreen(tmpplaylist.name, null);
+                }
+                else if (strCmp(tmptype.type, "song") == 0) {
+                    song tmpsong = tmp;
+
+                    // 曲を流す
+                    play(queue, tmpsong.index);
+                }
+            }
+        }
+        // プレイリストモード
+        else if (mode == PLAYLISTS) {
+            if (num == 2) {
+                up_cursor();
+            }
+            else if (num == 4) {
+                down_cursor();
+            }
+            else if (num == 6) {
+                SelectedItem s = select();
+
+                void[] tmp = s.item;
+                modeSt tmpmode = tmp;
+
+                if (strCmp(tmpmode.name, "Make Playlist") == 0) {
+                    mode = MAKE;
+
+                    goMakeScreen();
+                }
+                else if (strCmp(tmpmode.name, "Delete Playlist") == 0) {
+                    mode = DELETE;
+
+                    goDeleteScreen();
+                }
+                else if (strCmp(tmpmode.name, "Add Songs") == 0) {
+                    mode = ADD;
+
+                    goAddScreen();
+                }
+                else if (strCmp(tmpmode.name, "Remove Songs") == 0) {
+                    mode = REMOVE;
+
+                    goRemoveScreen();
+                }
+            }
+        }
+        // プレイリスト作成モード
+        else if (mode == MAKE) {
+            if (num == 2) {
+                up_cursor();
+            }
+            else if (num == 3) {
+                int page = get_page();
+
+                if (page == 1) {
+                    check_item(-1);
+                    init_selectingItems();
+
+                    mode = PLAYLISTS;
+                }
+
+                back();
+            }
+            else if (num == 4) {
+                down_cursor();
+            }
+            else if (num == 5) {
+                // 選択されている曲数が1曲以上
+                // selectingItems[i]のnameのアルバム曲一覧を取ってきて、
+                // is_selecting[j]がtrueのsongs[j]を溜め込んで
+                // そのままcreate-playlistで書き込む
+                //
+                if (selecting_num != 0) {
+                    create_playlist(playlistSongs);
+                }
+            }
+            else if (num == 6) {
+                SelectedItem s = select();
+
+                void[] tmp = s.item;
+                typeSt tmptype = tmp;
+
+                selected_when_create_and_add(s);
+            }
+        }
+        else if (mode == DELETE) {
+            if (num == 2) {
+                up_cursor();
+            }
+            else if (num == 3) {
+                mode = PLAYLISTS;
+
+                goPlaylistSettingsScreen();
+            }
+            else if (num == 4) {
+                down_cursor();
+            } else if (num == 6) {
+                SelectedItem s = select();
+                typeSt tmptype = s.item;
+
+                if (strCmp(tmptype.type, "playlist") == 0) {
+
+                    playlist tmpplaylist = s.item;
+
+                    delete_playlist(tmpplaylist.name);
+
+                    mode = PLAYLISTS;
+                    goPlaylistSettingsScreen();
+                }
+            }
+        }
+        else if (mode == ADD) {
+            if (num == 2) {
+                up_cursor();
+            }
+            else if (num == 3) {
+                int page = get_page();
+
+                if (page == 1) {
+                    check_item(-1);
+                    init_selectingItems();
+
+                    mode = PLAYLISTS;
+                }
+
+                back();
+            }
+            else if (num == 4) {
+                down_cursor();
+            }
+            else if (num == 5) {
+                // 選択されている曲数が1曲以上
+                // selectingItems[i]のnameのアルバム曲一覧を取ってきて、
+                // is_selecting[j]がtrueのsongs[j]を溜め込んで
+                // そのままcreate-playlistで書き込む
+                //
+                playlist[] playlists = fetch_playlists();
+
+                resetScreen();
+
+                int i = 0;
+                while (i < 5 && playlists[i].num != -1) {
+                    screen[i] = playlists[i];
+                    i = i + 1;
+                }
+
+                display_items(screen, "Select Display", "straight");
+
+            }
+            else if (num == 6) {
+                SelectedItem s = select();
+
+                void[] tmp = s.item;
+                typeSt tmptype = tmp;
+
+                selected_when_create_and_add(s);
+
+                if (strCmp(tmptype.type, "playlist") == 0) {
+                    if (selecting_num != 0) {
+                        playlist tmpplaylist = tmp;
+                        add_songs(tmpplaylist.name, playlistSongs);
+
+                        mode = PLAYLISTS;
+                        goPlaylistSettingsScreen();
+
+                        init_selectingItems();
+                    }
+                }
+            }
+        }
+        else if (mode == REMOVE) {
+            if (num == 2) {
+                up_cursor();
+            }
+            else if (num == 3) {
+                int page = get_page();
+
+                if (page == 1) {
+                    check_item(-1);
+                    init_selectingItems();
+
+                    mode = PLAYLISTS;
+                }
+
+                back();
+            }
+            else if (num == 4) {
+                down_cursor();
+            }
+            else if (num == 5) {
+                // 選択されている曲数が1曲以上
+                // selectingItems[i]のnameのアルバム曲一覧を取ってきて、
+                // is_selecting[j]がtrueのsongs[j]を溜め込んで
+                // そのままcreate-playlistで書き込む
+                //
+                if (selecting_num != 0) {
+                    remove_songs(now_dir, playlistSongs);
+
+                    mode = PLAYLISTS;
+                    goPlaylistSettingsScreen();
+                }
+            }
+            else if (num == 6) {
+                SelectedItem s = select();
+
+                void[] tmp = s.item;
+                typeSt tmptype = tmp;
+
+                if (strCmp(tmptype.type, "playlist") == 0) {
+                    // 初期化
+                    init_selectingItems();
+                    resetScreen();
+                    check_item(-1);
+                    
+                    playlist tmpplaylist = tmp;
+
+                    goSongsScreen(tmpplaylist.name, null);
+
+                    strCpy(now_dir, tmpplaylist.name);
+                    
+                }
+                else if (strCmp(tmptype.type, "song") == 0) {
+                    boolean is_check = check_item(s.idx);
+                    song tmpsong = tmp;
+
+                    if (is_check) {
+                        if (selecting_num == 10) {
+                            check_item(s.idx);
+                        }
+                        else {
+                            for (int i=0; i<10; i=i+1) {
+                                if (strCmp(playlistSongs[i].path, "") == 0) {
+                                    strCpy(playlistSongs[i].path, tmpsong.path);
+                                    playlistSongs[i].index = 0;
+                                    break;
+                                }
+                            }
+
+                            selecting_num = selecting_num + 1;
+
+                            for (int i=0; i<10; i=i+1) {
+                                if (strCmp(selectingItems[i].name, now_dir) == 0) {
+                                    selectingItems[i].is_selecting[s.idx] = true;
+                                }
+                            }
+                        }
+                    }
+                    else {
+                        for (int i=0; i<10; i=i+1) {
+                            if (strCmp(playlistSongs[i].path, tmpsong.path) == 0) {
+                                strCpy(playlistSongs[i].path, "");
+                                playlistSongs[i].index = -1;
+                                break;
+                            }
+                        }
+
+                        selecting_num = selecting_num - 1;
+
+                        for (int i=0; i<10; i=i+1) {
+                            if (strCmp(selectingItems[i].name, now_dir) == 0) {
+                                selectingItems[i].is_selecting[s.idx] = false;
+                            }
+                        }
+                    }
+                }
+            }
+            if (num == 3) {
+                mode = PLAYLISTS;
+
+                goPlaylistSettingsScreen();
+            }
+        }
+        // 設定モード
+        else if (mode == SETTINGS) {
+            if (num == 2) {
+                up_cursor();
+                if (is_power) powerScreen(0);
+            }
+            else if (num == 3) {
+                back();
+                is_power = false;
+            }
+            else if (num == 4) {
+                down_cursor();
+                if (is_power) powerScreen(1);
+            }
+            // 音量設定・電源切
+            else if (num == 6) {
+                SelectedItem s = select();
+
+                void[] tmp = s.item;
+                modeSt tmpmode = tmp;
+
+                if (strCmp(tmpmode.name, "volume") == 0) {
+                    mode = VOLUME;
+
+                    int vol = get_volume();
+
+                    volumeScreen(vol);
+                }
+                else if (strCmp(tmpmode.name, "power off") == 0) {
+                    goChoiseScreen("Turn Power Off?");
+
+                    is_power = true;
+
+                    powerScreen(0);
+                }
+                // type: power選択時の挙動
+                else if (strCmp(tmpmode.name, "YES") == 0) {
+                    // --- ending movie ---
+                    clear();
+
+                    poweroffScreen();
+
+                    sleep(1000);
+
+                    clear();
+                    power_off();
+                }
+                else if (strCmp(tmpmode.name, "NO") == 0) {
+                    back();
+                }
+            }
+        }
+        else if (mode == VOLUME) {
+            if (num == 3) {
+                // instead of back();
+                mode = SETTINGS;
+                goSettingsScreen();
+            }
+            else if (num == 4) { 
+                down_volume();
+
+                int vol = get_volume();
+                volumeScreen(vol);
+            }
+            else if (num == 6) {
+                up_volume();
+
+                int vol = get_volume();
+                volumeScreen(vol);
+            }
+        }
+
+        /*
+         * 曲がひとりでに終わった時の処理
+         */
+        //   [Warning]
+        //   この別プロセス内で呼ばなければ、stop(), play()で
+        //   フリーズして止まってしまうためここで呼ぶ
+        if (get_playstatus() == -1 && !get_wasStoppedByUser()) {
+            onSongEnd();
+        }
+
+        sleep(10);  // 10ms に一度
+    }
+}
