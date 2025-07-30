@@ -215,6 +215,7 @@ void goHomeScreen() {
     display_items(screen, "Menu", "mode");
 }
 
+playlist favPL = {"playlist", 0, "fav"};
 // 選曲スクリーンを描画
 void goSelectScreen() {
     // スクリーンのリセット
@@ -231,6 +232,11 @@ void goSelectScreen() {
 
         i = i + 1;
     }
+
+    screen[i] = favPL;
+
+    i = i + 1;
+
 
     int j = 0;
     // スクリーンにアルバムをセット
@@ -618,7 +624,14 @@ public void shellMain() {
                 down_cursor();
             }
             else if (num == 5) {
-                // sort
+                // attach fav. attr
+                SelectedItem s = select();
+
+                song tmpsong = s.item;
+                tmpsong.fav = !tmpsong.fav;
+
+                fav_song(tmpsong);
+                display_screen();
             }
             else if (num == 6) {
                 SelectedItem s = select();
@@ -993,3 +1006,4 @@ public void shellMain() {
         sleep(10);  // 10ms に一度
     }
 }
+
