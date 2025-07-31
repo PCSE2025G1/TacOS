@@ -254,7 +254,6 @@ int shufflePlayedCount = 0; // シャッフルで再生済み曲数
 //-----------------------------------------------------------------------------
 // 内部関数（非公開）
 //-----------------------------------------------------------------------------
-
 // シャッフル順序生成
 void generateShuffleOrder() {
     if (totalSongs <= 1) return;
@@ -383,7 +382,8 @@ public void get_history() {
 //   shuffle order    : 
 //   played in shuffle:
 public void initPlaylist() {
-    totalSongs = getTotalSongs();
+    // totalSongs = get_songsnum();
+    totalSongs = getTotalSongs(); // 曲の合計数を取得
     if (totalSongs == 0) return;
     
     originalOrder = malloc(sizeof(int) * totalSongs);
@@ -407,7 +407,7 @@ public void initPlaylist() {
 //-----------------------------------------------------------------------------
 // 次の曲へ
 public void next() {
-    totalSongs = getTotalSongs();
+    totalSongs = get_songsnum();
 
     // キューに曲が入っていない時
     if (totalSongs == 0) {
