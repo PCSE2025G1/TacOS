@@ -583,19 +583,20 @@ public void shellMain() {
     // mp3Proc init
     initPlaylist();
 
-sleep(200);
-  play(openingsong, 0);  
-  while(true){
-    int sw = readSw();
-    int num = swToNum(sw);
-    initialScreen();
-    if(num == 1||num == 2||num == 3||num == 4||num == 5||num == 6){
-      cls();
-      stop(true);
-      break;
+    sleep(200);
+    set_volume_level(5); // ボリュームを初期化
+    play(openingsong, 0);  
+    while(true){
+      int sw = readSw();
+      int num = swToNum(sw);
+      initialScreen();
+      if(num == 1||num == 2||num == 3||num == 4||num == 5||num == 6){
+        cls();
+        stop(true);
+        break;
+      }
+      sleep(10);
     }
-    sleep(10);
-  }
 
     // 初回起動時はホーム画面
     goHomeScreen();
