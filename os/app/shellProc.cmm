@@ -1023,6 +1023,7 @@ public void shellMain() {
             else if (num == 3) {
                 back();
                 is_power = false;
+                goSettingsScreen();
             }
             else if (num == 4) {
                 down_cursor();
@@ -1060,9 +1061,19 @@ public void shellMain() {
 
                     clear();
                     power_off();
+
+                    // -- 復帰後 --------------------
+                    int vol = get_volume();
+                    set_volume_level(vol);   // 音量レベル再設定
+                    is_power = false;        // 電源状態をリセット
+                    mode = SETTINGS;
+                    goSettingsScreen();
                 }
                 else if (strCmp(tmpmode.name, "NO") == 0) {
+                    mode = SETTINGS;
                     back();
+                    is_power = false;
+                    goSettingsScreen();
                 }
             }
         }
