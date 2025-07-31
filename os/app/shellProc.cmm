@@ -263,7 +263,6 @@ song[] goSongsScreen(char[] name, char[] sort) {
     int i = 0;
     while (songs[i].index != -1) {
         screen[i] = songs[i];
-        printF("%s, ", songs[i].path);
 
         i = i + 1;
     }
@@ -357,11 +356,11 @@ void goAddScreen() {
     // スクリーンのリセット
     resetScreen();
 
-    playlist[] playlists = fetch_playlists();
+    album[] albums = fetch_albums();
 
     int i = 0;
-    while (playlists[i].num != -1) {
-        screen[i] = playlists[i];
+    while (albums[i].num != -1) {
+        screen[i] = albums[i];
 
         i = i + 1;
     }
@@ -726,6 +725,7 @@ public void shellMain() {
 
                 song tmpsong = s.item;
                 tmpsong.fav = !tmpsong.fav;
+                printF("faved %s\n", tmpsong.path);
 
                 fav_song(tmpsong);
                 display_screen();
@@ -813,12 +813,8 @@ public void shellMain() {
                 down_cursor();
             }
             else if (num == 5) {
-                // 選択されている曲数が1曲以上
-                // selectingItems[i]のnameのアルバム曲一覧を取ってきて、
-                // is_selecting[j]がtrueのsongs[j]を溜め込んで
-                // そのままcreate-playlistで書き込む
-                //
                 if (selecting_num != 0) {
+                    for (int i=0;i<10;i=i+1) dbgPutStr(playlistSongs[i].name);
                     create_playlist(playlistSongs);
                 }
             }
@@ -857,6 +853,7 @@ public void shellMain() {
                 }
             }
         }
+        // --- プレイリストに曲を追加する ---
         else if (mode == ADD) {
             if (num == 2) {
                 up_cursor();
@@ -877,11 +874,6 @@ public void shellMain() {
                 down_cursor();
             }
             else if (num == 5) {
-                // 選択されている曲数が1曲以上
-                // selectingItems[i]のnameのアルバム曲一覧を取ってきて、
-                // is_selecting[j]がtrueのsongs[j]を溜め込んで
-                // そのままcreate-playlistで書き込む
-                //
                 playlist[] playlists = fetch_playlists();
 
                 resetScreen();
@@ -893,7 +885,6 @@ public void shellMain() {
                 }
 
                 display_items(screen, "Select Display", "straight");
-
             }
             else if (num == 6) {
                 SelectedItem s = select();
@@ -916,6 +907,7 @@ public void shellMain() {
                 }
             }
         }
+        // --- プレイリストから曲を削除する ---
         else if (mode == REMOVE) {
             if (num == 2) {
                 up_cursor();
@@ -942,6 +934,10 @@ public void shellMain() {
                 // そのままcreate-playlistで書き込む
                 //
                 if (selecting_num != 0) {
+                    printF("playlist name: %s\n", now_dir);
+                    printF("remove songs:\n");
+
+                    for (int i=0; i<10; i=i+1) printF("    %s\n",playlistSongs[i].name);
                     remove_songs(now_dir, playlistSongs);
 
                     mode = PLAYLISTS;
