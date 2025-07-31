@@ -1,4 +1,3 @@
-
 /*
  * 画面描画を担当するコンポーネント
  *
@@ -19,13 +18,17 @@
 //
 // --- ページ ---
 // 遷移はselect, backによって行う
-int now_page = 0; // 現在のページ深度：w
-int[] page_top = {0, 0, 0}; // 現在ページのトップはinternal_objsのどこを指すのか
+int now_page = 0; // 現在のページ深度 0~3
+int[] page_top = {0, 0, 0, 0}; // 現在ページのトップはinternal_objsのどこを指すのか
 // --- ディスプレイ ---
 int display_size = 6;
-int[] cursor = {0, 0, 0}; // 範囲は0~5
+int[] cursor = {0, 0, 0, 0}; // 範囲は0~5
 char[] Title = "          ";
 char CURSOR = '>';
+
+boolean[] selecting_idx = {
+    false, false, false, false, false, false, false, false, false, false
+};
 
 // 構造体型確認用
 void[] tmp;
@@ -60,12 +63,19 @@ void[][][] screen = {
         null,null,null,null,null,null,null,null,null,null,
         null,null,null,null,null,null,null,null,null,null,
         null,null,null,null,null,null,null,null,null,null, null
+    },
+    {
+        null,null,null,null,null,null,null,null,null,null,
+        null,null,null,null,null,null,null,null,null,null,
+        null,null,null,null,null,null,null,null,null,null,
+        null,null,null,null,null,null,null,null,null,null,
+        null,null,null,null,null,null,null,null,null,null, null
     }
 };
 
 
 // --- 関数の戻り値 ---
-SelectedItem item = {"aiueo", null};
+SelectedItem item = {"aiueo", 0, null};
 
 //
 // 先生が元々作っていた関数
@@ -122,9 +132,15 @@ public void _show_psbar() {}
 //
 // 自作関数
 //
+// 現在のページ数を返す
+public int get_page() {
+    return now_page;
+}
+
 // --- 現在カーソルが選択中の要素を返す ---
 public SelectedItem select() {
     item.item = screen[now_page][page_top[now_page]+cursor[now_page]];
+    item.idx = page_top[now_page] + cursor[now_page];
     return item;
 }
 
@@ -176,7 +192,7 @@ void init_page_top() {
 // 入力アイテムをオブジェクト配列に入れる
 void items_to_objs(void[][] items) {
     for (int i=0; i<50; i=i+1) {
-        // 入力アイテムは必ずEOとしてnullを末尾に挿入
+        // null,または50のオブジェクトを読み込むと終了
         if (items[i] == null) {
             return ;
         }
@@ -190,8 +206,9 @@ void draw_title() {
     _locateXY(0, 0); _putStr(Title);
 }
 
+
 // screen配列に入っているものを描画する
-void display_screen() {
+public void display_screen() {
     // クリア
     clear();
 
@@ -216,7 +233,19 @@ void display_screen() {
         } else if(strCmp(tmptype.type, "song") == 0) {
             tmp = tmptype;
             tmpsong = tmp;
-            _locateXY(1, i + 2); _putStr(tmpsong.name);
+
+            // selecting_idxに応じて*を描画する
+            if (selecting_idx[i + page_top[now_page]])  {
+                _locateXY(1, i + 2); _putStr("*");
+                _locateXY(3, i + 2); _putStr(tmpsong.name);
+            }
+            else {
+                _locateXY(1, i + 2); _putStr(tmpsong.name);
+            }
+
+            if (tmpsong.fav) {
+                _locateXY(15, i + 2); _putCh(chr(0x86));
+            }
         } else if(strCmp(tmptype.type, "album") == 0) {
             tmp = tmptype;
             tmpalbum = tmp;
@@ -229,10 +258,28 @@ void display_screen() {
     }
 }
 
+public boolean check_item(int idx) {
+    if (idx == -1) {
+        for (int i = 0; i < 10; i = i + 1) {
+            selecting_idx[i] = false;
+        }
+        return false;
+    }
+    else
+        selecting_idx[idx] = !selecting_idx[idx];
+
+    display_screen();
+
+    _locateXY(0, cursor[now_page] + 2); _putCh(CURSOR);
+
+    return selecting_idx[idx];
+}
+
 // 与えたアイテムを画面に並べる, またその初期化
 public void display_items(void[][] items, char[] title, char[] move) {
     // モード遷移の場合 (状態完全リセット)
     if (strCmp(move,"mode") == 0) {
+        init_page_top();
         init_screen(-1);
         clear();
         init_cursor();
@@ -323,4 +370,144 @@ public void down_cursor() {
         // カーソルを再描画
         _locateXY(0, cursor[now_page] + 2); _putCh(CURSOR);
     }
+}
+
+//-----------------------------------------------------------------------------
+// streamScreen: 再生画面
+//-----------------------------------------------------------------------------
+// 再生画面のみ特別に別で用意する
+public void streamScreen(DisplaySongInfo info) {
+    clear();
+    // タイトル
+    _locateXY(0, 0);
+    _putStr("Play Mode");
+    _locateXY(10, 0);    // 右側に曲番号を表示
+    _putDec(info.idx + 1, 1); // 現在の曲番号（1から始まる）
+    _putStr("/");
+    _putDec(info.totalsongs, 1); // 総曲数
+    
+    // N/L/R/S モード表示(全部で16文字)
+    _locateXY(8,1);
+    if (info.is_normal) _putStr("N");
+    else _putStr("-");
+    _putStr("/");    
+    if (info.is_loop) _putStr("L");
+    else _putStr("-");
+    _putStr("/");
+    if (info.is_repeat) _putStr("R");
+    else _putStr("-");
+    _putStr("/");
+    if (info.is_shuffle) _putStr("S");
+    else _putStr("-");
+    
+    // // お気に入り表示
+    // if (queue[idx].fav) {
+    //   locateXY(0, 1);    // ハートを表示する位置（例：画面右上）
+    //   putStr("♥");
+    // }; // 現在の曲のお気に入り状態
+
+
+    // ファイル名取得（idx + 1）を使って screen1 と一致
+    char[] fname = info.playingsong.name; 
+    if (fname != null) {
+        _locateXY(2, 3);
+        _putStr(fname);
+    }
+    
+    // artist表示（あれば）
+    char[] path = info.playingsong.artist;
+    if (path != null) {
+        _locateXY(2, 4);
+        _putStr(path);
+    } else {
+        _locateXY(2, 4);
+        _putStr("N/A");
+    }
+    
+    // 再生状態
+    _locateXY(6, 5);
+    // 再生中
+    if (info.is_paused) {
+        _putCh(chr(0x7f)); // 再生中のアイコン
+    // 停止中
+    } else {
+        _putCh(chr(0x80)); //停止中のアイコン
+    }
+    
+    // 前/次
+    _locateXY(2, 5);
+    _putCh(chr(0x85));
+    _locateXY(10, 5);
+    _putCh(chr(0x84));
+    
+}
+
+
+//-----------------------------------------------------------------------------
+// 音量画面
+//-----------------------------------------------------------------------------
+public void volumeScreen(int vol) {
+  clear();
+  _locateXY(0,0); _putStr("Volume Setting");
+  
+  // volume行
+  _locateXY(0,2);
+  _putStr(" "); // 初期状態では空白
+  _locateXY(2,2);
+  _putStr("volume: ");
+
+  int disp_level;
+  disp_level = vol;   // 現在の音量
+
+  _putDec(disp_level, 2);  // 「1〜10」の値を表示
+  _putStr("/10");          // 最大値の表示
+
+  // ------- 音量バーの表示 ---------------------------
+
+  _locateXY(1,6);
+  _putCh(chr(0x87)); // メガホン
+  _locateXY(2,6);
+  _putCh(chr(0x88));  // Wi-Fi
+  _locateXY(4,6); 
+  int vol_bar;
+  vol_bar = vol;  // 通常時の音量
+
+  // バーの表示
+  for (int i = 1; i <= 10; i = i + 1) {
+      if (i <= vol_bar) {
+          _putCh(chr(0x89));  // 音量あり部分
+      } else {
+          _putCh(chr(0x8a));  // 空き部分
+      }
+  }
+}
+
+//-----------------------------------------------------------------------------
+// 電源画面
+//-----------------------------------------------------------------------------
+public void powerScreen(int pos) {
+    // 0なら電源オフ、1なら電源オンを指す
+    if (pos == 0) {
+        _locateXY(3,5);
+    }
+    else {
+        _locateXY(9,5);
+    }
+    _putCh(chr(0x7f));
+
+    // 空の電池
+    _locateXY(4,5); _putCh(chr(0x8b)); _putCh(chr(0x8c));
+    // 満タン電池
+    _locateXY(10,5); _putCh(chr(0x8d)); _putCh(chr(0x8e));
+}
+
+//-----------------------------------------------------------------------------
+// シャットダウン画面
+//-----------------------------------------------------------------------------
+public void poweroffScreen() {
+    clear();
+
+    _locateXY(1,4);
+
+    _putStr("Shutting Down...");
 }

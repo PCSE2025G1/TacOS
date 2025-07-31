@@ -26,17 +26,9 @@
  *
  */
 
+// ------ プライベート関数 ------
+void resetScreen();
+void goHomeScreen();
 
-#include "structures.hmm"
-
-
+// ------ パブリック関数 -------
 public void shellMain();
-
-
-
-// ------- 各機能の実行関数--------------------
-void act_settings(I_StgSt stg_in);   // 設定処理
-void act_stream(I_StrmSt strm_in);   // ストリーム処理
-
-
-

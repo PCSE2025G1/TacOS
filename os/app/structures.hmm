@@ -4,7 +4,6 @@
 #ifndef STRUCTURES_H
 #define STRUCTURES_H
 
-
 struct typeSt {
     char[] type;
 };
@@ -15,13 +14,14 @@ struct modeSt {
     char[] name;
 };
 
-
 struct album {
-    int song_num;
+    char[] type;
+    int num;
     char[] name;
 };
 
 struct song {
+    char[] type;
     int index;
     char[] name;
     boolean fav;
@@ -30,60 +30,38 @@ struct song {
 };
 
 struct playlist {
-    int song_num;
+    char[] type;
+    int num;
     char[] name;
+};
+
+struct Mp3Tag {
+    char[] song_name;
+    char[] artist_name;
 };
 
 struct SelectedItem {
     char[] type;
+    int idx;
     void[] item;
 };
 
-struct I_ScrnSt {
-    int mode;
-    int sw;
-    char[][] scrndata;
-    int volume;
-};
-
-struct O_ScrnSt {
-    char[] type;
-    void[] item;
-};
-
-struct I_StrmSt {
-    int sw;
-};
-
-struct O_StrmSt {
-    song crt_song;
-    song[] history;
-    int type;
-    char[] super_name;
-};
-
-struct I_LibSt {
+struct SelectingItem {
     char[] type;
     char[] name;
-    char[] sort;
+    boolean[] is_selecting;
 };
 
-struct O_LibSt {
-    char[] type;
-    void[] item;
-};
-
-struct I_StgSt {
-    int sw;
-};
-
-struct I_PlistSt {
-    char[] pltname;
-    song[] songs;
-};
-
-struct O_PlistSt {
-    playlist plt;
+struct DisplaySongInfo {
+    song playingsong;
+    int totalsongs;
+    int idx;
+    boolean is_normal;
+    boolean is_loop;
+    boolean is_repeat;
+    boolean is_shuffle;
+    int playstatus;
+    boolean is_paused;
 };
 
 #endif
