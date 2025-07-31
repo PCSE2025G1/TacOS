@@ -382,7 +382,6 @@ public void get_history() {
 //   shuffle order    : 
 //   played in shuffle:
 public void initPlaylist() {
-    // totalSongs = get_songsnum();
     totalSongs = getTotalSongs(); // 曲の合計数を取得
     if (totalSongs == 0) return;
     

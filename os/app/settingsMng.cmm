@@ -16,6 +16,7 @@ int volume = 0x5050; // 初期音量（16dB減衰）
 // 論理音量（1〜9）から実レジスタ値（0x0000〜0x9090）へ変換
 //-----------------------------------------------------------------------------
 public void set_volume_level(int level) {
+
     if (level < 1) level = 1;
     // if (level > 9) level = 9;
     if (level > 10) level = 10; // 上限を10に設定
