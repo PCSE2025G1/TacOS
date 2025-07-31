@@ -200,20 +200,11 @@ void items_to_objs(void[][] items) {
     }
 }
 
-// タイトルの描画を行う
-void draw_title() {
-    // タイトル描画
-    _locateXY(0, 0); _putStr(Title);
-}
-
 
 // screen配列に入っているものを描画する
 public void display_screen() {
     // クリア
     clear();
-
-    // タイトル描画
-    draw_title();
 
     // 現在のページの1番上にオブジェクトを配置する
     // itemsの数を超えないように、6つループする
