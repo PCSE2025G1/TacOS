@@ -1,0 +1,209 @@
+#include <util.hmm>
+#include <fs.hmm>
+#include <kernel.hmm>
+#include "playlistMng.hmm"
+#include "structures.hmm"
+#include "appUtil.hmm"
+#include "lcd.hmm"
+
+
+// playlist file names
+int playlist_num = 5;
+int song_num = 10;
+char[][] files = {"pl0", "pl1", "pl2", "pl3", "pl4"};
+char[] context = array(76);
+char[] buffer = array(2048);
+char[] pltcat_filepath = "                              ";
+
+char[][] songlist = {
+    "                    ",
+    "                    ",
+    "                    ",
+    "                    ",
+    "                    ",
+    "                    ",
+    "                    ",
+    "                    ",
+    "                    ",
+    "                    "
+};
+
+// プレイリストのパスにして返す
+char[] pltCat(char[] word){
+    strCpy(pltcat_filepath, "/PLAYLIST/");
+    strCat(pltcat_filepath, word);
+    strCat(pltcat_filepath, ".txt");
+    return pltcat_filepath;
+}
+
+// ファイルから読み込んだプレイリストの曲数を取得する
+int lenSongofPlt(char[] pltname) {
+    int fd;
+    int file_num = 0;
+    char[] filepath = "               ";
+
+    filepath = pltCat(pltname);
+    fd = open(filepath, READ_MODE);
+
+    if (fd >= 0) {
+        read(fd, context, 2048);
+
+        int i = 0;
+        while (context[i] != '\0') {
+            if (context[i] == '\n') {
+                file_num = file_num + 1;
+            }
+        
+            i = i + 1;
+        }
+    }
+
+    close(fd);
+
+    return file_num;
+}
+
+// 指定した名前のプレイリストを削除する
+public void delete_playlist(char[] pltname) {
+    pltcat_filepath = pltCat(pltname);
+
+    remove(pltcat_filepath);
+}
+
+
+/* 与えた曲を内容として持つプレイリストを作成する
+ *  - プレイリストの命名規則は、/Playlists/pli.txt
+ *  - 終了規則は、
+ *      > null, idx==-1, 10曲入れおわった
+ *    である
+ */
+public void create_playlist(song[] songs) {
+    for (int i=0; i<playlist_num; i=i+1) {
+        int fd;
+        strCpy(pltcat_filepath, "");
+        boolean isCreate = false;
+
+        pltcat_filepath = pltCat(files[i]);
+        fd = open(pltcat_filepath, WRITE_MODE);
+
+        // ファイルが非存在
+        if(fd < 0){
+            isCreate = true;
+            creat(pltcat_filepath);
+
+            fd = open(pltcat_filepath, WRITE_MODE);
+
+            int j = 0;
+            while (songs[j] != null && j < song_num) { 
+                if (songs[j].index != -1) {
+                    dbgPutStr(songs[j].path);
+                    write(fd, songs[j].path, strLen(songs[j].path));
+                    write(fd, "\n", 1);
+                }
+                j = j + 1;
+            }
+            // 生成終了
+            close(fd);
+            break;
+        }
+        close(fd);
+    }
+}
+
+
+/* 与えた名前のプレイリストに与えた曲を挿入する
+ *   - 曲数は最大で10曲
+ *   - 終了条件は同上
+ */
+public void add_songs(char[] pltname, song[] songs){
+    char[] filepath = "               ";
+    int fd;
+    filepath = pltCat(pltname);
+    int file_num = lenSongofPlt(pltname);
+
+    fd = open(filepath, APPEND_MODE);
+
+    if (fd >= 0) {
+        int i = 0;
+        while (true) {
+            if (songs[i] != null && songs[i].index != -1 && file_num != 10) {
+                write(fd, songs[i].path, strLen(songs[i].path));
+                write(fd, "\n", 1);
+
+                file_num = file_num + 1;
+            }
+            else {
+                break;
+            }
+            i = i + 1;
+        }
+    }
+    close(fd);
+}
+
+
+/* 与えた名前のプレイリストに含む曲中の与えた曲を削除する
+ *   - 曲数は最大で10曲
+ *   - 終了条件は同上
+ */
+
+public void remove_songs(char[] pltname, song[] songs) {
+    int fd;
+
+    strCpy(pltcat_filepath, "/PLAYLIST/"); strCat(pltcat_filepath, pltname); strCat(pltcat_filepath, ".TXT");
+    fd = open(pltcat_filepath, READ_MODE);
+
+    if (fd >= 0) {
+
+        // songlistのクリア
+        for (int i=0; i<10; i=i+1) {
+            strCpy(songlist[i], "");
+            printF("%s\n", songs[i].name);
+        }
+
+        // プレイリスト中の曲一覧を取得する 
+        read(fd, buffer, 1024);
+        int i = 0; int j = 0; int k = 0;
+
+        while (buffer[i] != '\0' && j < 10) {
+            if (buffer[i] == '\n') {
+                songlist[j][k] = '\0';
+                j = j + 1;
+                i = i + 1;
+                k = 0;
+            } else {
+                songlist[j][k] = buffer[i];
+                i = i + 1;
+                k = k + 1;
+            }
+        }
+        close(fd);
+
+        // songs[i].pathとマッチするものを削除する
+        i = 0;
+        while (songs[i] != null) {
+            for (j=0; j<song_num; j=j+1) {
+                if (strCmp(songs[i].path, songlist[j]) == 0) {
+                    strCpy(songlist[j], "");
+                }
+            }
+            i = i + 1;
+        } 
+
+        // 一旦ファイルを作り直す
+        remove(pltcat_filepath);
+        creat(pltcat_filepath);
+
+        // 最後に残っている曲を書き直す
+        fd = open(pltcat_filepath, WRITE_MODE);
+        for (i=0; i<song_num; i=i+1) {
+            if (strCmp(songlist[i], "") != 0) {
+                dbgPutStr(songlist[i]); dbgPutStr("\n");
+                write(fd, songlist[i], strLen(songlist[i]));
+                write(fd, "\n", 1);
+            }
+        }
+        close(fd);
+    }
+}
+

@@ -1,0 +1,67 @@
+//
+// --- 構造体 ---
+//
+#ifndef STRUCTURES_H
+#define STRUCTURES_H
+
+struct typeSt {
+    char[] type;
+};
+
+struct modeSt {
+    char[] type;
+    int id;
+    char[] name;
+};
+
+struct album {
+    char[] type;
+    int num;
+    char[] name;
+};
+
+struct song {
+    char[] type;
+    int index;
+    char[] name;
+    boolean fav;
+    char[] artist;
+    char[] path;
+};
+
+struct playlist {
+    char[] type;
+    int num;
+    char[] name;
+};
+
+struct Mp3Tag {
+    char[] song_name;
+    char[] artist_name;
+};
+
+struct SelectedItem {
+    char[] type;
+    int idx;
+    void[] item;
+};
+
+struct SelectingItem {
+    char[] type;
+    char[] name;
+    boolean[] is_selecting;
+};
+
+struct DisplaySongInfo {
+    song playingsong;
+    int totalsongs;
+    int idx;
+    boolean is_normal;
+    boolean is_loop;
+    boolean is_repeat;
+    boolean is_shuffle;
+    int playstatus;
+    boolean is_paused;
+};
+
+#endif

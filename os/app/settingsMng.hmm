@@ -1,0 +1,19 @@
+/*
+ * settingsMng.hmm : 基本設定を行う関数
+ *
+ * 2025.06.20 : 新規作成
+ *
+ */
+
+
+
+//-----------------------------------------------------------------------------
+// 基本情報操作
+//-----------------------------------------------------------------------------
+public void set_volume_level(int level);
+public void power_off();
+
+public void up_volume();
+public void down_volume();
+public int get_volume();
+

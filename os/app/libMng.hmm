@@ -1,0 +1,22 @@
+/*
+ * libMng.hmm : 条件に合ったファイルをフェッチする関数
+ *
+ * 2025.06.20 : 新規作成
+ *
+ */
+
+
+#include "structures.hmm"
+
+
+//-----------------------------------------------------------------------------
+// 条件に合ったファイルをフェッチする操作
+//-----------------------------------------------------------------------------
+public song[] fetch_songs(char[] name, char[] sort);
+public album[] fetch_albums();
+public playlist[] fetch_playlists();
+public char[][] fetch_artists();
+
+// 曲をいいねする
+public void fav_song(song s);
+
